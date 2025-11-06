@@ -1,6 +1,6 @@
 package aggregator
 
-// EventKind identifies the type of incoming stream event.
+// EventType identifies the type of incoming stream event.
 type EventType int
 
 const (
@@ -13,7 +13,7 @@ const (
 type StreamEvent struct {
 	Type   EventType
 	TxID   string
-	Change KVChange // only for EventChange
+	Change KVChange // only for RowChange
 }
 
 // Coordinator wires the aggregator to input/output channels and enforces backpressure

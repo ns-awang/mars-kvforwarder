@@ -87,7 +87,6 @@ func (b *Aggregator) ApplyChange(txID string, change KVChange) (Batch, bool) {
 
 // Commit finalizes the transaction, emitting any remaining items as the final batch.
 // The final batch's BatchTotal will be set to the final count of batches for this tx.
-// Commit finalizes the transaction, emitting any remaining items as the final batch.
 func (b *Aggregator) Commit(txID string) (Batch, bool) {
 
 	state, ok := b.txs[txID]
@@ -108,8 +107,7 @@ func (b *Aggregator) Commit(txID string) (Batch, bool) {
 	return Batch{}, false
 }
 
-// emitLocked emits the current batch window and resets it. If final is true, BatchTotal
-// will be set by the caller after the total is known.
+// emitLocked emits the current batch window and resets it.
 func (b *Aggregator) emitLocked(txID string, state *txBatchState) Batch {
 	items := make([]KVChange, 0, len(state.order))
 	for _, k := range state.order {
