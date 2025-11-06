@@ -1,10 +1,10 @@
 # Tasks: Transaction Boundary Detection & Aggregation
 
-- [ ] Task Group 1: Aggregation Semantics & In-Memory Model
-  - [ ] Implement per-transaction buffer with last-write-wins per key
-  - [ ] Track GTID/tx-id and commit-order alignment
-  - [ ] Collapse multiple row ops per key within a transaction
-  - [ ] Unit tests for aggregation semantics (last-write-wins, commit-order)
+- [x] Task Group 1: Aggregation Semantics & In-Memory Model
+  - [x] Implement per-transaction buffer with last-write-wins per key
+  - [x] Track GTID/tx-id and commit-order alignment
+  - [x] Collapse multiple row ops per key within a transaction
+  - [x] Unit tests for aggregation semantics (last-write-wins, commit-order)
 
 - [ ] Task Group 2: Batching & Flush Policy
   - [ ] Flush when 50 KV updates reached or COMMIT observed
