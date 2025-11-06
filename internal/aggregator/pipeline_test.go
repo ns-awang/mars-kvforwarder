@@ -14,18 +14,18 @@ func TestCoordinatorBackpressureOnOutput(t *testing.T) {
 	go coord.Run()
 
 	// Begin tx and send 2 unique changes -> one batch emitted
-	in <- StreamEvent{Kind: EventBegin, TxID: "t1"}
-	in <- StreamEvent{Kind: EventChange, TxID: "t1", Change: KVChange{Key: "a", Value: []byte("1")}}
-	in <- StreamEvent{Kind: EventChange, TxID: "t1", Change: KVChange{Key: "b", Value: []byte("2")}}
+	in <- StreamEvent{Type: TxnBegin, TxID: "t1"}
+	in <- StreamEvent{Type: RowChange, TxID: "t1", Change: KVChange{Key: "a", Value: []byte("1")}}
+	in <- StreamEvent{Type: RowChange, TxID: "t1", Change: KVChange{Key: "b", Value: []byte("2")}}
 
 	// Next change should try to create second batch on commit, but the out buffer
 	// is still full (we have not consumed the first batch yet), so send blocks.
-	in <- StreamEvent{Kind: EventChange, TxID: "t1", Change: KVChange{Key: "c", Value: []byte("3")}}
-	in <- StreamEvent{Kind: EventCommit, TxID: "t1"}
+	in <- StreamEvent{Type: RowChange, TxID: "t1", Change: KVChange{Key: "c", Value: []byte("3")}}
+	in <- StreamEvent{Type: TxnCommit, TxID: "t1"}
 
 	// At this point, out buffer should contain exactly 1 batch (first). The second
 	// cannot be queued yet because buffer is full: verify via len(out).
-	time.Sleep(100 * time.Millisecond) // allow batcher to attempt send
+	time.Sleep(100 * time.Millisecond) // allow aggregator to attempt send
 	assert.Equal(t, 1, len(out), "out buffer should be full with exactly 1 batch before we read")
 
 	// Now drain the first batch

@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"sync"
 
 	obs "mars-kvforwarder/internal/observability"
 
@@ -25,13 +24,11 @@ type Batch struct {
 	PayloadSHA256  string
 }
 
-// Batcher handles batching KV changes per transaction with last-write-wins within
+// Aggregator handles batching KV changes per transaction with last-write-wins within
 // each batch window, flushing on max size or commit.
 type Aggregator struct {
 	MaxBatchSize int
-
-	mu  sync.Mutex
-	txs map[string]*txBatchState
+	txs          map[string]*txBatchState
 }
 
 type txBatchState struct {
@@ -43,7 +40,7 @@ type txBatchState struct {
 // DefaultMaxBatchSize is used if a non-positive max batch size is provided.
 const DefaultMaxBatchSize = 50
 
-// NewBatcher creates a new Batcher with the provided max batch size. If
+// NewAggregator creates a new Aggregator with the provided max batch size. If
 // maxBatchSize <= 0, a safe default is used.
 func NewAggregator(maxBatchSize int) *Aggregator {
 	obs.Init(nil)
@@ -57,8 +54,6 @@ func NewAggregator(maxBatchSize int) *Aggregator {
 }
 
 func (b *Aggregator) Begin(txID string) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
 	if _, ok := b.txs[txID]; !ok {
 		b.txs[txID] = &txBatchState{
 			current: make(map[string]KVChange),
@@ -70,9 +65,8 @@ func (b *Aggregator) Begin(txID string) {
 
 // ApplyChange adds a change to the current batch window. If the number of unique
 // keys in the window reaches MaxBatchSize, a batch is emitted with BatchTotal=0.
-func (b *Aggregator) ApplyChange(txID string, change KVChange) []Batch {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+// ApplyChange applies a change; returns a batch if threshold reached.
+func (b *Aggregator) ApplyChange(txID string, change KVChange) (Batch, bool) {
 
 	state, ok := b.txs[txID]
 	if !ok {
@@ -86,35 +80,32 @@ func (b *Aggregator) ApplyChange(txID string, change KVChange) []Batch {
 	state.current[change.Key] = change
 
 	if len(state.current) >= b.MaxBatchSize {
-		return []Batch{b.emitLocked(txID, state)}
+		return b.emitLocked(txID, state), true
 	}
-	return nil
+	return Batch{}, false
 }
 
 // Commit finalizes the transaction, emitting any remaining items as the final batch.
 // The final batch's BatchTotal will be set to the final count of batches for this tx.
-func (b *Aggregator) Commit(txID string) []Batch {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+// Commit finalizes the transaction, emitting any remaining items as the final batch.
+func (b *Aggregator) Commit(txID string) (Batch, bool) {
 
 	state, ok := b.txs[txID]
 	if !ok {
-		return nil
+		return Batch{}, false
 	}
 
-	batches := make([]Batch, 0, 2)
 	// If there are remaining items, emit a final batch.
 	if len(state.current) > 0 {
-		batches = append(batches, b.emitLocked(txID, state))
-	}
-
-	// Now that we know total (state.index), set BatchTotal on the last batch accordingly.
-	if len(batches) > 0 {
-		batches[len(batches)-1].BatchTotal = state.index
+		batch := b.emitLocked(txID, state)
+		// Now that we know total (state.index), set BatchTotal on the final batch.
+		batch.BatchTotal = state.index
+		delete(b.txs, txID)
+		return batch, true
 	}
 
 	delete(b.txs, txID)
-	return batches
+	return Batch{}, false
 }
 
 // emitLocked emits the current batch window and resets it. If final is true, BatchTotal
@@ -134,10 +125,12 @@ func (b *Aggregator) emitLocked(txID string, state *txBatchState) Batch {
 		Items:          items,
 		IdempotencyKey: fmt.Sprintf("%s:%d", txID, state.index),
 	}
-	// Compute SHA256 of concatenated item values for convenience (payload hashing)
+	// Compute SHA256 across key, value, and operation for each item
 	h := sha256.New()
 	for _, it := range items {
+		h.Write([]byte(it.Key))
 		h.Write(it.Value)
+		h.Write([]byte(it.Operation))
 	}
 	batch.PayloadSHA256 = hex.EncodeToString(h.Sum(nil))
 

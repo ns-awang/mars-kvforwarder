@@ -10,20 +10,21 @@ import (
 )
 
 func TestBuildHeadersIncludesRequiredFields(t *testing.T) {
-    // Build a real batch via aggregator to verify sha256 correctness
-    b := NewAggregator(50)
+	// Build a real batch via aggregator to verify checksum correctness
+	b := NewAggregator(50)
 	tx := "tx-100"
 	b.Begin(tx)
-	_ = b.ApplyChange(tx, KVChange{Key: "a", Value: []byte("foo")})
-	_ = b.ApplyChange(tx, KVChange{Key: "b", Value: []byte("bar")})
-	out := b.Commit(tx)
-	require.Len(t, out, 1)
-	batch := out[0]
+    _, _ = b.ApplyChange(tx, KVChange{Key: "a", Value: []byte("foo")})
+    _, _ = b.ApplyChange(tx, KVChange{Key: "b", Value: []byte("bar")})
+    batch, ok := b.Commit(tx)
+    require.True(t, ok)
 
-	// Recompute expected sha256 of concatenated values
+	// Recompute expected sha256 of key+value+operation per item
 	h := sha256.New()
 	for _, it := range batch.Items {
+		h.Write([]byte(it.Key))
 		h.Write(it.Value)
+		h.Write([]byte(it.Operation))
 	}
 	expectedSHA := hex.EncodeToString(h.Sum(nil))
 	assert.Equal(t, expectedSHA, batch.PayloadSHA256)
