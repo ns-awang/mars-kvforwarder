@@ -41,11 +41,11 @@ func (c *Coordinator) Run() {
 		case TxnBegin:
 			c.aggregator.Begin(ev.TxID)
 		case RowChange:
-			if batch, ok := c.aggregator.ApplyChange(ev.TxID, ev.Change); ok {
+			if batch, hasBatch := c.aggregator.ApplyChange(ev.TxID, ev.Change); hasBatch {
 				c.out <- batch // blocks when output buffer is full (backpressure)
 			}
 		case TxnCommit:
-			if batch, ok := c.aggregator.Commit(ev.TxID); ok {
+			if batch, hasBatch := c.aggregator.Commit(ev.TxID); hasBatch {
 				c.out <- batch // blocks until consumer catches up
 			}
 		}

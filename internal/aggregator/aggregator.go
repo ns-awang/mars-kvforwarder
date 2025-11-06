@@ -10,6 +10,9 @@ import (
 	mlog "github.com/netSkope/mars-lib/src/log"
 )
 
+// cache logger to avoid repeated lookups
+var slog = mlog.GetLogger()
+
 // Batch represents an emitted batch of KV changes for a transaction.
 // BatchTotal is 0 for mid-transaction batches (unknown until commit). The final
 // commit batch will set BatchTotal to the final total across the transaction.
@@ -67,6 +70,10 @@ func (b *Aggregator) Begin(txID string) {
 // keys in the window reaches MaxBatchSize, a batch is emitted with BatchTotal=0.
 // ApplyChange applies a change; returns a batch if threshold reached.
 func (b *Aggregator) ApplyChange(txID string, change KVChange) (Batch, bool) {
+	if change.Key == "" {
+		slog.Warnf("skip change with empty key: tx=%s", txID)
+		return Batch{}, false
+	}
 
 	state, ok := b.txs[txID]
 	if !ok {
@@ -91,6 +98,7 @@ func (b *Aggregator) Commit(txID string) (Batch, bool) {
 
 	state, ok := b.txs[txID]
 	if !ok {
+		slog.Errorf("commit on unknown tx: tx=%s", txID)
 		return Batch{}, false
 	}
 
@@ -134,7 +142,7 @@ func (b *Aggregator) emitLocked(txID string, state *txBatchState) Batch {
 
 	// Metrics + Log flush event
 	obs.ObserveFlush(len(items), 0)
-	mlog.GetLogger().Infof("batch flush: tx=%s index=%d total=%d items=%d sha256=%s", batch.TxID, batch.BatchIndex, batch.BatchTotal, len(batch.Items), batch.PayloadSHA256)
+	slog.Infof("batch flush: tx=%s index=%d total=%d items=%d sha256=%s", batch.TxID, batch.BatchIndex, batch.BatchTotal, len(batch.Items), batch.PayloadSHA256)
 
 	// reset window
 	state.current = make(map[string]KVChange)
