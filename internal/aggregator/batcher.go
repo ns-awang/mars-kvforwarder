@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 
+	obs "mars-kvforwarder/internal/observability"
+
 	mlog "github.com/netSkope/mars-lib/src/log"
 )
 
@@ -25,7 +27,7 @@ type Batch struct {
 
 // Batcher handles batching KV changes per transaction with last-write-wins within
 // each batch window, flushing on max size or commit.
-type Batcher struct {
+type Aggregator struct {
 	MaxBatchSize int
 
 	mu  sync.Mutex
@@ -43,17 +45,18 @@ const DefaultMaxBatchSize = 50
 
 // NewBatcher creates a new Batcher with the provided max batch size. If
 // maxBatchSize <= 0, a safe default is used.
-func NewBatcher(maxBatchSize int) *Batcher {
+func NewAggregator(maxBatchSize int) *Aggregator {
+	obs.Init(nil)
 	if maxBatchSize <= 0 {
 		maxBatchSize = DefaultMaxBatchSize
 	}
-	return &Batcher{
+	return &Aggregator{
 		MaxBatchSize: maxBatchSize,
 		txs:          make(map[string]*txBatchState),
 	}
 }
 
-func (b *Batcher) Begin(txID string) {
+func (b *Aggregator) Begin(txID string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if _, ok := b.txs[txID]; !ok {
@@ -67,7 +70,7 @@ func (b *Batcher) Begin(txID string) {
 
 // ApplyChange adds a change to the current batch window. If the number of unique
 // keys in the window reaches MaxBatchSize, a batch is emitted with BatchTotal=0.
-func (b *Batcher) ApplyChange(txID string, change KVChange) []Batch {
+func (b *Aggregator) ApplyChange(txID string, change KVChange) []Batch {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -90,7 +93,7 @@ func (b *Batcher) ApplyChange(txID string, change KVChange) []Batch {
 
 // Commit finalizes the transaction, emitting any remaining items as the final batch.
 // The final batch's BatchTotal will be set to the final count of batches for this tx.
-func (b *Batcher) Commit(txID string) []Batch {
+func (b *Aggregator) Commit(txID string) []Batch {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -116,7 +119,7 @@ func (b *Batcher) Commit(txID string) []Batch {
 
 // emitLocked emits the current batch window and resets it. If final is true, BatchTotal
 // will be set by the caller after the total is known.
-func (b *Batcher) emitLocked(txID string, state *txBatchState) Batch {
+func (b *Aggregator) emitLocked(txID string, state *txBatchState) Batch {
 	items := make([]KVChange, 0, len(state.order))
 	for _, k := range state.order {
 		if ch, ok := state.current[k]; ok {
@@ -138,7 +141,8 @@ func (b *Batcher) emitLocked(txID string, state *txBatchState) Batch {
 	}
 	batch.PayloadSHA256 = hex.EncodeToString(h.Sum(nil))
 
-	// Log flush event
+	// Metrics + Log flush event
+	obs.ObserveFlush(len(items), 0)
 	mlog.GetLogger().Infof("batch flush: tx=%s index=%d total=%d items=%d sha256=%s", batch.TxID, batch.BatchIndex, batch.BatchTotal, len(batch.Items), batch.PayloadSHA256)
 
 	// reset window

@@ -44,6 +44,11 @@
   - [ ] Emit latency, throughput, and error metrics
   - [ ] Structured logs for flush events with txid/GTID and batch info
   - [ ] Unit tests/observability checks for metric emission and key log events
+ 
+ - [x] Task Group 5: Metrics & Logging
+  - [x] Emit latency, throughput, and error metrics
+  - [x] Structured logs for flush events with txid/GTID and batch info
+  - [x] Unit tests/observability checks for metric emission and key log events
 
 - [ ] Task Group 6: Interfaces & Integration Points
   - [ ] Define input record and transaction event interfaces from streaming component

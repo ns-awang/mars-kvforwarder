@@ -21,7 +21,7 @@ type StreamEvent struct {
 type Coordinator struct {
     in       chan StreamEvent
     out      chan Batch
-    batcher  *Batcher
+    batcher  *Aggregator
 }
 
 // NewCoordinator creates a coordinator with bounded input/output channels.
@@ -29,7 +29,7 @@ func NewCoordinator(inputBufferSize, outputBufferSize, maxBatchSize int) (*Coord
     c := &Coordinator{
         in:      make(chan StreamEvent, inputBufferSize),
         out:     make(chan Batch, outputBufferSize),
-        batcher: NewBatcher(maxBatchSize),
+        batcher: NewAggregator(maxBatchSize),
     }
     return c, c.in, c.out
 }

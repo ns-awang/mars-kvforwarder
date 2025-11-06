@@ -10,8 +10,8 @@ import (
 )
 
 func TestBuildHeadersIncludesRequiredFields(t *testing.T) {
-	// Build a real batch via batcher to verify sha256 correctness
-	b := NewBatcher(50)
+    // Build a real batch via aggregator to verify sha256 correctness
+    b := NewAggregator(50)
 	tx := "tx-100"
 	b.Begin(tx)
 	_ = b.ApplyChange(tx, KVChange{Key: "a", Value: []byte("foo")})

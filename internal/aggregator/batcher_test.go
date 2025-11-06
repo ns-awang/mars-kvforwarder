@@ -9,7 +9,7 @@ import (
 )
 
 func TestBatcherFlushOnMaxSize(t *testing.T) {
-	b := NewBatcher(50)
+    b := NewAggregator(50)
 	tx := "tx-10"
 	b.Begin(tx)
 
@@ -44,7 +44,7 @@ func TestBatcherFlushOnMaxSize(t *testing.T) {
 }
 
 func TestBatcherCommitOnly(t *testing.T) {
-	b := NewBatcher(50)
+    b := NewAggregator(50)
 	tx := "tx-11"
 	b.Begin(tx)
 	for i := 0; i < 10; i++ {
@@ -57,7 +57,7 @@ func TestBatcherCommitOnly(t *testing.T) {
 }
 
 func TestBatcherLastWriteWinsWithinWindow(t *testing.T) {
-	b := NewBatcher(50)
+    b := NewAggregator(50)
 	tx := "tx-12"
 	b.Begin(tx)
 	_ = b.ApplyChange(tx, KVChange{Key: "k", Value: []byte("a"), Operation: OperationCreate})
