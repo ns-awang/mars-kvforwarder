@@ -51,7 +51,7 @@ func New() *Aggregator {
 
 var (
 	ErrTxAlreadyBegan = errors.New("transaction already began")
-	ErrTxNotBegan     = errors.New("transaction not began")
+	ErrTxNotStarted   = errors.New("transaction not started")
 	ErrUnknownTx      = errors.New("unknown transaction")
 )
 
@@ -79,7 +79,7 @@ func (a *Aggregator) ApplyChange(txID string, change KVChange) error {
 
 	buf, ok := a.txBuffers[txID]
 	if !ok || !buf.began {
-		return ErrTxNotBegan
+		return ErrTxNotStarted
 	}
 	if _, exists := buf.lastWriteWins[change.Key]; !exists {
 		buf.keyOrder = append(buf.keyOrder, change.Key)

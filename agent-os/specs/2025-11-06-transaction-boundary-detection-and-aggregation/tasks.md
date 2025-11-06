@@ -23,6 +23,12 @@
   - [ ] Add previous and current txid headers
   - [ ] Add batch index and batch total headers
   - [ ] Unit tests for header presence, values, and checksum correctness
+ 
+ - [x] Task Group 3: Headers & Integrity
+  - [x] Add SHA256 payload checksum header
+  - [x] Add previous and current txid headers
+  - [x] Add batch index and batch total headers
+  - [x] Unit tests for header presence, values, and checksum correctness
 
 - [ ] Task Group 4: Backpressure & Concurrency
   - [ ] Configure fixed-size input and output channel buffers
