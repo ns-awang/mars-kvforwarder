@@ -11,6 +11,12 @@
   - [ ] Split large transactions across multiple messages with batch index/total
   - [ ] Derive deterministic idempotency key (e.g., GTID + batch index)
   - [ ] Unit tests for flush conditions, transaction splitting, idempotency keying
+ 
+ - [x] Task Group 2: Batching & Flush Policy
+  - [x] Flush when 50 KV updates reached or COMMIT observed
+  - [x] Split large transactions across multiple messages with batch index/total
+  - [x] Derive deterministic idempotency key (e.g., GTID + batch index)
+  - [x] Unit tests for flush conditions, transaction splitting, idempotency keying
 
 - [ ] Task Group 3: Headers & Integrity
   - [ ] Add SHA256 payload checksum header
