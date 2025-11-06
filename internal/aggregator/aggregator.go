@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"time"
 
 	obs "mars-kvforwarder/internal/observability"
 
@@ -35,9 +36,10 @@ type Aggregator struct {
 }
 
 type txBatchState struct {
-	current map[string]KVChange
-	order   []string
-	index   int
+	current   map[string]KVChange
+	order     []string
+	index     int
+	startedAt time.Time
 }
 
 // DefaultMaxBatchSize is used if a non-positive max batch size is provided.
@@ -59,9 +61,10 @@ func NewAggregator(maxBatchSize int) *Aggregator {
 func (b *Aggregator) Begin(txID string) {
 	if _, ok := b.txs[txID]; !ok {
 		b.txs[txID] = &txBatchState{
-			current: make(map[string]KVChange),
-			order:   make([]string, 0, b.MaxBatchSize),
-			index:   0,
+			current:   make(map[string]KVChange),
+			order:     make([]string, 0, b.MaxBatchSize),
+			index:     0,
+			startedAt: time.Now(),
 		}
 	}
 }
@@ -77,7 +80,7 @@ func (b *Aggregator) ApplyChange(txID string, change KVChange) (Batch, bool) {
 
 	state, ok := b.txs[txID]
 	if !ok {
-		state = &txBatchState{current: make(map[string]KVChange), order: make([]string, 0, b.MaxBatchSize)}
+		state = &txBatchState{current: make(map[string]KVChange), order: make([]string, 0, b.MaxBatchSize), startedAt: time.Now()}
 		b.txs[txID] = state
 	}
 
@@ -140,9 +143,13 @@ func (b *Aggregator) emitLocked(txID string, state *txBatchState) Batch {
 	}
 	batch.PayloadSHA256 = hex.EncodeToString(h.Sum(nil))
 
-	// Metrics + Log flush event
-	obs.ObserveFlush(len(items), 0)
-	slog.Infof("batch flush: tx=%s index=%d total=%d items=%d sha256=%s", batch.TxID, batch.BatchIndex, batch.BatchTotal, len(batch.Items), batch.PayloadSHA256)
+	// Metrics + Log flush event (latency from tx begin)
+	var secs float64
+	if !state.startedAt.IsZero() {
+		secs = time.Since(state.startedAt).Seconds()
+	}
+	obs.ObserveFlush(len(items), secs)
+	slog.Infof("batch flush: tx=%s index=%d items=%d", batch.TxID, batch.BatchIndex, len(batch.Items))
 
 	// reset window
 	state.current = make(map[string]KVChange)

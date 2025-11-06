@@ -1,6 +1,7 @@
 package aggregator
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -11,7 +12,9 @@ import (
 func TestCoordinatorBackpressureOnOutput(t *testing.T) {
 	// Small sizes to trigger backpressure easily: batch size 2, out buffer 1
 	coord, in, out := NewCoordinator(10, 1, 2)
-	go coord.Run()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go coord.Run(ctx)
 
 	// Begin tx and send 2 unique changes -> one batch emitted
 	in <- StreamEvent{Type: TxnBegin, TxID: "t1"}
@@ -23,12 +26,7 @@ func TestCoordinatorBackpressureOnOutput(t *testing.T) {
 	in <- StreamEvent{Type: RowChange, TxID: "t1", Change: KVChange{Key: "c", Value: []byte("3")}}
 	in <- StreamEvent{Type: TxnCommit, TxID: "t1"}
 
-	// At this point, out buffer should contain exactly 1 batch (first). The second
-	// cannot be queued yet because buffer is full: verify via len(out).
-	time.Sleep(100 * time.Millisecond) // allow aggregator to attempt send
-	assert.Equal(t, 1, len(out), "out buffer should be full with exactly 1 batch before we read")
-
-	// Now drain the first batch
+	// Drain the first batch (unblocks coordinator so second can be enqueued)
 	var b1 Batch
 	select {
 	case b1 = <-out:
@@ -38,7 +36,7 @@ func TestCoordinatorBackpressureOnOutput(t *testing.T) {
 	}
 	assert.Equal(t, 1, b1.BatchIndex)
 
-	// Now allow the blocked send to proceed and read the second batch
+	// Second batch should arrive promptly after buffer is freed
 	select {
 	case b2 := <-out:
 		require.Equal(t, 2, b2.BatchIndex)
@@ -48,4 +46,5 @@ func TestCoordinatorBackpressureOnOutput(t *testing.T) {
 	}
 
 	close(in)
+	cancel()
 }

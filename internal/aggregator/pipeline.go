@@ -1,5 +1,7 @@
 package aggregator
 
+import "context"
+
 // EventType identifies the type of incoming stream event.
 type EventType int
 
@@ -35,18 +37,26 @@ func NewCoordinator(inputBufferSize, outputBufferSize, maxBatchSize int) (*Coord
 }
 
 // Run processes events until the input channel is closed.
-func (c *Coordinator) Run() {
-	for ev := range c.in {
-		switch ev.Type {
-		case TxnBegin:
-			c.aggregator.Begin(ev.TxID)
-		case RowChange:
-			if batch, hasBatch := c.aggregator.ApplyChange(ev.TxID, ev.Change); hasBatch {
-				c.out <- batch // blocks when output buffer is full (backpressure)
+func (c *Coordinator) Run(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-c.in:
+			if !ok {
+				return
 			}
-		case TxnCommit:
-			if batch, hasBatch := c.aggregator.Commit(ev.TxID); hasBatch {
-				c.out <- batch // blocks until consumer catches up
+			switch ev.Type {
+			case TxnBegin:
+				c.aggregator.Begin(ev.TxID)
+			case RowChange:
+				if batch, hasBatch := c.aggregator.ApplyChange(ev.TxID, ev.Change); hasBatch {
+					c.out <- batch // blocks when output buffer is full (backpressure)
+				}
+			case TxnCommit:
+				if batch, hasBatch := c.aggregator.Commit(ev.TxID); hasBatch {
+					c.out <- batch // blocks until consumer catches up
+				}
 			}
 		}
 	}
