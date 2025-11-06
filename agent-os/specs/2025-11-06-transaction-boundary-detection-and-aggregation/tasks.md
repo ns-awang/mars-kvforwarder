@@ -34,6 +34,11 @@
   - [ ] Configure fixed-size input and output channel buffers
   - [ ] Ensure blocking behavior when producer lags; avoid unbounded memory
   - [ ] Unit tests for bounded queues and blocking behavior
+ 
+ - [x] Task Group 4: Backpressure & Concurrency
+  - [x] Configure fixed-size input and output channel buffers
+  - [x] Ensure blocking behavior when producer lags; avoid unbounded memory
+  - [x] Unit tests for bounded queues and blocking behavior
 
 - [ ] Task Group 5: Metrics & Logging
   - [ ] Emit latency, throughput, and error metrics

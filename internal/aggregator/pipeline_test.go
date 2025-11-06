@@ -1,0 +1,51 @@
+package aggregator
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestCoordinatorBackpressureOnOutput(t *testing.T) {
+	// Small sizes to trigger backpressure easily: batch size 2, out buffer 1
+	coord, in, out := NewCoordinator(10, 1, 2)
+	go coord.Run()
+
+	// Begin tx and send 2 unique changes -> one batch emitted
+	in <- StreamEvent{Kind: EventBegin, TxID: "t1"}
+	in <- StreamEvent{Kind: EventChange, TxID: "t1", Change: KVChange{Key: "a", Value: []byte("1")}}
+	in <- StreamEvent{Kind: EventChange, TxID: "t1", Change: KVChange{Key: "b", Value: []byte("2")}}
+
+	// Next change should try to create second batch on commit, but the out buffer
+	// is still full (we have not consumed the first batch yet), so send blocks.
+	in <- StreamEvent{Kind: EventChange, TxID: "t1", Change: KVChange{Key: "c", Value: []byte("3")}}
+	in <- StreamEvent{Kind: EventCommit, TxID: "t1"}
+
+	// At this point, out buffer should contain exactly 1 batch (first). The second
+	// cannot be queued yet because buffer is full: verify via len(out).
+	time.Sleep(100 * time.Millisecond) // allow batcher to attempt send
+	assert.Equal(t, 1, len(out), "out buffer should be full with exactly 1 batch before we read")
+
+	// Now drain the first batch
+	var b1 Batch
+	select {
+	case b1 = <-out:
+		// got first batch
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected first batch within 500ms")
+	}
+	assert.Equal(t, 1, b1.BatchIndex)
+
+	// Now allow the blocked send to proceed and read the second batch
+	select {
+	case b2 := <-out:
+		require.Equal(t, 2, b2.BatchIndex)
+		require.Equal(t, 2, b2.BatchTotal)
+	case <-time.After(1 * time.Second):
+		t.Fatal("expected second batch after freeing buffer")
+	}
+
+	close(in)
+}
