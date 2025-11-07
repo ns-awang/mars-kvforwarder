@@ -17,13 +17,6 @@ import (
 
 var slog = mlog.GetLogger()
 
-type RowEvent struct {
-	TxID      uint64
-	Namespace string
-	Pop       string
-	Change    agg.KVChange
-}
-
 // ExtractNamespacePop parses table name of form `config_data_{namespace}_{POP}`.
 func ExtractNamespacePop(tableName string) (namespace, pop string, ok bool) {
 	prefix := aurora.CONFIG_DATA_TABLE_PREFIX + "_"
@@ -53,9 +46,11 @@ type TransientError struct{ Err error }
 
 func (e TransientError) Error() string { return e.Err.Error() }
 
-// StreamBinlog consumes events from src and invokes sink for each event.
-// Retries transient errors up to retryLimit with exponential backoff; stops on fatal errors.
-func StreamBinlog(ctx context.Context, src BinlogEventSource, sink func(RowEvent)) (err error) {
+// StreamBinlog removed; use StreamToChannel
+
+// StreamToChannel streams binlog events and directly emits aggregator.StreamEvent into out.
+// This avoids extra adapter layers and lets the Coordinator consume events via channel.
+func StreamToChannel(ctx context.Context, src BinlogEventSource, out chan<- agg.StreamEvent) (err error) {
 	const (
 		retryLimit     = 3
 		initialBackoff = 100 * time.Millisecond
@@ -70,15 +65,14 @@ func StreamBinlog(ctx context.Context, src BinlogEventSource, sink func(RowEvent
 	var ev *replication.BinlogEvent
 	for {
 		if ctx.Err() != nil {
-			return
+			return ctx.Err()
 		}
-
 		ev, err = src.GetEvent(ctx)
 		if err != nil {
 			if _, ok := err.(TransientError); !ok {
 				obs.IncError()
 				slog.Errorf("binlog fatal error: %v", err)
-				return
+				return err
 			}
 			retries++
 			obs.IncError()
@@ -86,16 +80,16 @@ func StreamBinlog(ctx context.Context, src BinlogEventSource, sink func(RowEvent
 			if retries > retryLimit {
 				obs.IncError()
 				slog.Errorf("binlog transient error exceeded retries: %v", err)
-				return
+				return err
 			}
 			if ctx.Err() != nil {
-				return
+				return ctx.Err()
 			}
 			timer := time.NewTimer(backoff)
 			select {
 			case <-ctx.Done():
 				timer.Stop()
-				return
+				return ctx.Err()
 			case <-timer.C:
 			}
 			if backoff < maxBackoff {
@@ -106,11 +100,65 @@ func StreamBinlog(ctx context.Context, src BinlogEventSource, sink func(RowEvent
 			}
 			continue
 		}
-
 		retries = 0
 		backoff = initialBackoff
-		processReplicationEvent(ev, &state, sink)
-		continue
+
+		switch ev.Header.EventType {
+		case replication.GTID_EVENT:
+			if ge, ok := ev.Event.(*replication.GTIDEvent); ok {
+				state.currentTxID = uint64(ge.GNO)
+			} else {
+				state.currentTxID = 0
+			}
+		case replication.QUERY_EVENT:
+			qe, _ := ev.Event.(*replication.QueryEvent)
+			normalizedQuery := strings.TrimSpace(strings.ToUpper(string(qe.Query)))
+			if normalizedQuery == "BEGIN" && state.currentTxID != 0 {
+				out <- agg.StreamEvent{Type: agg.TxnBegin, TxID: state.currentTxID}
+			}
+			if normalizedQuery == "COMMIT" {
+				if state.currentTxID != 0 {
+					out <- agg.StreamEvent{Type: agg.TxnCommit, TxID: state.currentTxID}
+				}
+				state.currentTxID = 0
+			}
+		case replication.XID_EVENT:
+			if state.currentTxID != 0 {
+				out <- agg.StreamEvent{Type: agg.TxnCommit, TxID: state.currentTxID}
+			}
+			state.currentTxID = 0
+		case replication.TABLE_MAP_EVENT:
+			if tme, ok := ev.Event.(*replication.TableMapEvent); ok {
+				state.tableIDToName[tme.TableID] = string(tme.Table)
+			}
+		case replication.WRITE_ROWS_EVENTv0, replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2,
+			replication.UPDATE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2,
+			replication.DELETE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2:
+			if rowsEvent, ok := ev.Event.(*replication.RowsEvent); ok {
+				tableName := state.tableIDToName[rowsEvent.TableID]
+				namespace, pop, valid := ExtractNamespacePop(tableName)
+				if !valid {
+					obs.IncParseError()
+					slog.Errorf("malformed config_data table name, skip row: table=%s txid=%d", tableName, state.currentTxID)
+					continue
+				}
+				changes, _, ok2, err2 := handleRowsEvent(ev)
+				if err2 != nil {
+					obs.IncParseError()
+					slog.Errorf("rows mapping error: table=%s txid=%d event=%s err=%v", tableName, state.currentTxID, ev.Header.EventType, err2)
+					continue
+				}
+				if !ok2 {
+					continue
+				}
+				for _, ch := range changes {
+					obs.IncProcessedRow()
+					out <- agg.StreamEvent{Type: agg.RowChange, TxID: state.currentTxID, Namespace: namespace, Pop: pop, Change: ch}
+				}
+			}
+		default:
+			// ignore other events
+		}
 	}
 }
 
@@ -120,57 +168,7 @@ type streamState struct {
 	tableIDToName map[uint64]string
 }
 
-// processReplicationEvent handles replication events and emits RowEvent via sink.
-func processReplicationEvent(binlogEvent *replication.BinlogEvent, state *streamState, sink func(RowEvent)) {
-	switch binlogEvent.Header.EventType {
-	case replication.GTID_EVENT:
-		if ge, ok := binlogEvent.Event.(*replication.GTIDEvent); ok {
-			// Use only GNO as TxID per downstream tracking simplicity.
-			state.currentTxID = uint64(ge.GNO)
-		} else {
-			state.currentTxID = 0
-		}
-	case replication.QUERY_EVENT:
-		qe, _ := binlogEvent.Event.(*replication.QueryEvent)
-		normalizedQuery := strings.TrimSpace(strings.ToUpper(string(qe.Query)))
-		if normalizedQuery == "COMMIT" {
-			state.currentTxID = 0
-		}
-	case replication.XID_EVENT:
-		state.currentTxID = 0
-	case replication.TABLE_MAP_EVENT:
-		if tme, ok := binlogEvent.Event.(*replication.TableMapEvent); ok {
-			state.tableIDToName[tme.TableID] = string(tme.Table)
-		}
-	case replication.WRITE_ROWS_EVENTv0, replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2,
-		replication.UPDATE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2,
-		replication.DELETE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2:
-		if rowsEvent, ok := binlogEvent.Event.(*replication.RowsEvent); ok {
-			tableName := state.tableIDToName[rowsEvent.TableID]
-			namespace, pop, valid := ExtractNamespacePop(tableName)
-			if !valid {
-				obs.IncParseError()
-				slog.Errorf("malformed config_data table name, skip row: table=%s txid=%d", tableName, state.currentTxID)
-				return
-			}
-			changes, _, ok, err := handleRowsEvent(binlogEvent)
-			if err != nil {
-				obs.IncParseError()
-				slog.Errorf("rows mapping error: table=%s txid=%d event=%s err=%v", tableName, state.currentTxID, binlogEvent.Header.EventType, err)
-				return
-			}
-			if !ok {
-				return
-			}
-			for _, ch := range changes {
-				obs.IncProcessedRow()
-				sink(RowEvent{TxID: state.currentTxID, Namespace: namespace, Pop: pop, Change: ch})
-			}
-		}
-	default:
-		// ignore
-	}
-}
+// processReplicationEvent removed; unified in StreamToChannel
 
 // handleRowsEvent converts a RowsEvent into KV changes and operation.
 func handleRowsEvent(e *replication.BinlogEvent) (changes []agg.KVChange, op agg.OperationType, ok bool, err error) {
