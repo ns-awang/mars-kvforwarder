@@ -11,7 +11,8 @@ import (
 )
 
 func TestAggregatorFlushOnMaxSize(t *testing.T) {
-	b := NewAggregator(50)
+	b := NewAggregator()
+	b.MaxBatchSize = 50
 	tx := "tx-10"
 	b.Begin(tx)
 
@@ -46,7 +47,8 @@ func TestAggregatorFlushOnMaxSize(t *testing.T) {
 }
 
 func TestAggregatorCommitOnly(t *testing.T) {
-	b := NewAggregator(50)
+	b := NewAggregator()
+	b.MaxBatchSize = 50
 	tx := "tx-11"
 	b.Begin(tx)
 	for i := 0; i < 10; i++ {
@@ -59,7 +61,8 @@ func TestAggregatorCommitOnly(t *testing.T) {
 }
 
 func TestAggregatorLastWriteWinsWithinWindow(t *testing.T) {
-	b := NewAggregator(50)
+	b := NewAggregator()
+	b.MaxBatchSize = 50
 	tx := "tx-12"
 	b.Begin(tx)
 	_, _ = b.ApplyChange(tx, KVChange{Key: "k", Value: []byte("a"), Operation: OperationCreate})
@@ -71,7 +74,8 @@ func TestAggregatorLastWriteWinsWithinWindow(t *testing.T) {
 }
 
 func TestHeadersAcrossSplitBatches(t *testing.T) {
-	a := NewAggregator(2) // force split after 2 unique keys
+	a := NewAggregator()
+	a.MaxBatchSize = 2 // force split after 2 unique keys
 	tx := "tx-split"
 	a.Begin(tx)
 

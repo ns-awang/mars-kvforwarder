@@ -31,7 +31,11 @@ func NewCoordinator(inputBufferSize, outputBufferSize, maxBatchSize int) (*Coord
 	c := &Coordinator{
 		in:         make(chan StreamEvent, inputBufferSize),
 		out:        make(chan Batch, outputBufferSize),
-		aggregator: NewAggregator(maxBatchSize),
+		aggregator: NewAggregator(),
+	}
+	// honor caller-provided batch size (tests rely on this); ignore if <=0
+	if maxBatchSize > 0 {
+		c.aggregator.MaxBatchSize = maxBatchSize
 	}
 	return c, c.in, c.out
 }

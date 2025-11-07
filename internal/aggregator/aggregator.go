@@ -36,8 +36,7 @@ type Aggregator struct {
 }
 
 type txBatchState struct {
-	current   map[string]KVChange
-	order     []string
+	pendingKV map[string]KVChange
 	index     int
 	startedAt time.Time
 }
@@ -45,15 +44,11 @@ type txBatchState struct {
 // DefaultMaxBatchSize is used if a non-positive max batch size is provided.
 const DefaultMaxBatchSize = 50
 
-// NewAggregator creates a new Aggregator with the provided max batch size. If
-// maxBatchSize <= 0, a safe default is used.
-func NewAggregator(maxBatchSize int) *Aggregator {
+// NewAggregator creates a new Aggregator with DefaultMaxBatchSize.
+func NewAggregator() *Aggregator {
 	obs.Init(nil)
-	if maxBatchSize <= 0 {
-		maxBatchSize = DefaultMaxBatchSize
-	}
 	return &Aggregator{
-		MaxBatchSize: maxBatchSize,
+		MaxBatchSize: DefaultMaxBatchSize,
 		txs:          make(map[string]*txBatchState),
 	}
 }
@@ -61,8 +56,7 @@ func NewAggregator(maxBatchSize int) *Aggregator {
 func (b *Aggregator) Begin(txID string) {
 	if _, ok := b.txs[txID]; !ok {
 		b.txs[txID] = &txBatchState{
-			current:   make(map[string]KVChange),
-			order:     make([]string, 0, b.MaxBatchSize),
+			pendingKV: make(map[string]KVChange),
 			index:     0,
 			startedAt: time.Now(),
 		}
@@ -80,17 +74,14 @@ func (b *Aggregator) ApplyChange(txID string, change KVChange) (Batch, bool) {
 
 	state, ok := b.txs[txID]
 	if !ok {
-		state = &txBatchState{current: make(map[string]KVChange), order: make([]string, 0, b.MaxBatchSize), startedAt: time.Now()}
+		state = &txBatchState{pendingKV: make(map[string]KVChange), startedAt: time.Now()}
 		b.txs[txID] = state
 	}
 
-	if _, exists := state.current[change.Key]; !exists {
-		state.order = append(state.order, change.Key)
-	}
-	state.current[change.Key] = change
+	state.pendingKV[change.Key] = change
 
-	if len(state.current) >= b.MaxBatchSize {
-		return b.emitLocked(txID, state), true
+	if len(state.pendingKV) >= b.MaxBatchSize {
+		return b.flushBatch(txID, state), true
 	}
 	return Batch{}, false
 }
@@ -106,8 +97,8 @@ func (b *Aggregator) Commit(txID string) (Batch, bool) {
 	}
 
 	// If there are remaining items, emit a final batch.
-	if len(state.current) > 0 {
-		batch := b.emitLocked(txID, state)
+	if len(state.pendingKV) > 0 {
+		batch := b.flushBatch(txID, state)
 		// Now that we know total (state.index), set BatchTotal on the final batch.
 		batch.BatchTotal = state.index
 		delete(b.txs, txID)
@@ -118,13 +109,11 @@ func (b *Aggregator) Commit(txID string) (Batch, bool) {
 	return Batch{}, false
 }
 
-// emitLocked emits the current batch window and resets it.
-func (b *Aggregator) emitLocked(txID string, state *txBatchState) Batch {
-	items := make([]KVChange, 0, len(state.order))
-	for _, k := range state.order {
-		if ch, ok := state.current[k]; ok {
-			items = append(items, ch)
-		}
+// flushBatch materializes the current window into a Batch and resets the window.
+func (b *Aggregator) flushBatch(txID string, state *txBatchState) Batch {
+	items := make([]KVChange, 0, len(state.pendingKV))
+	for _, ch := range state.pendingKV {
+		items = append(items, ch)
 	}
 	state.index++
 	batch := Batch{
@@ -152,8 +141,7 @@ func (b *Aggregator) emitLocked(txID string, state *txBatchState) Batch {
 	slog.Infof("batch flush: tx=%s index=%d items=%d", batch.TxID, batch.BatchIndex, len(batch.Items))
 
 	// reset window
-	state.current = make(map[string]KVChange)
-	state.order = state.order[:0]
+	state.pendingKV = make(map[string]KVChange)
 
 	return batch
 }

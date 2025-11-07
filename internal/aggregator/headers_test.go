@@ -11,13 +11,14 @@ import (
 
 func TestBuildHeadersIncludesRequiredFields(t *testing.T) {
 	// Build a real batch via aggregator to verify checksum correctness
-	b := NewAggregator(50)
+	b := NewAggregator()
+	b.MaxBatchSize = 50
 	tx := "tx-100"
 	b.Begin(tx)
-    _, _ = b.ApplyChange(tx, KVChange{Key: "a", Value: []byte("foo")})
-    _, _ = b.ApplyChange(tx, KVChange{Key: "b", Value: []byte("bar")})
-    batch, ok := b.Commit(tx)
-    require.True(t, ok)
+	_, _ = b.ApplyChange(tx, KVChange{Key: "a", Value: []byte("foo")})
+	_, _ = b.ApplyChange(tx, KVChange{Key: "b", Value: []byte("bar")})
+	batch, ok := b.Commit(tx)
+	require.True(t, ok)
 
 	// Recompute expected sha256 of key+value+operation per item
 	h := sha256.New()
