@@ -24,11 +24,11 @@
   - [x] Operation mapping: INSERT=create, UPDATE=update (post-image), DELETE=delete
   - [x] Unit tests for key/value mapping and NULL/edge cases
 
-- [ ] Task Group 6: RowEvent Splitting & Emission
-  - [ ] Split multi-row RowEvents into per-row `StreamEvent`
-  - [ ] Emit `TxID`, `Namespace`, `Pop`, and `KVChange{Key, Value, Operation}`
-  - [ ] Ensure alignment with `Coordinator.Run(ctx)` and channels/backpressure
-  - [ ] Unit tests for multi-row splitting and event fields
+- [x] Task Group 6: RowEvent Splitting & Emission
+  - [x] Split multi-row RowEvents into per-row `StreamEvent`
+  - [x] Emit `TxID`, `Namespace`, `Pop`, and `KVChange{Key, Value, Operation}`
+  - [x] Ensure alignment with `Coordinator.Run(ctx)` and channels/backpressure
+  - [x] Unit tests for multi-row splitting and event fields
 
 - [ ] Task Group 7: Error Handling & Observability
   - [ ] Error logging with context (table, txid, namespace, pop, op)

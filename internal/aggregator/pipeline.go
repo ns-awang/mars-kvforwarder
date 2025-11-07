@@ -13,9 +13,11 @@ const (
 
 // StreamEvent represents an input event from the binlog streaming component.
 type StreamEvent struct {
-	Type   EventType
-	TxID   uint64
-	Change KVChange // only for RowChange
+	Type      EventType
+	TxID      uint64
+	Namespace string   // only set for RowChange
+	Pop       string   // only set for RowChange
+	Change    KVChange // only for RowChange
 }
 
 // Coordinator wires the aggregator to input/output channels and enforces backpressure
