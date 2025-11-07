@@ -18,11 +18,11 @@
   - [x] Validate and handle malformed names (metric + error log)
   - [x] Unit tests for happy-path and malformed table names
 
-- [ ] Task Group 5: Row Mapping to KV
-  - [ ] Key = `config_key` (non-NULL); skip+error log if NULL
-  - [ ] Value = raw `config_value` bytes; pass through NULL
-  - [ ] Operation mapping: INSERT=create, UPDATE=update (post-image), DELETE=delete
-  - [ ] Unit tests for key/value mapping and NULL/edge cases
+- [x] Task Group 5: Row Mapping to KV
+  - [x] Key = `config_key` (non-NULL); skip+error log if NULL
+  - [x] Value = raw `config_value` bytes; pass through NULL
+  - [x] Operation mapping: INSERT=create, UPDATE=update (post-image), DELETE=delete
+  - [x] Unit tests for key/value mapping and NULL/edge cases
 
 - [ ] Task Group 6: RowEvent Splitting & Emission
   - [ ] Split multi-row RowEvents into per-row `StreamEvent`

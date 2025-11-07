@@ -2,10 +2,13 @@ package binlog
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
 	obs "mars-kvforwarder/internal/observability"
+
+	agg "mars-kvforwarder/internal/aggregator"
 
 	"github.com/go-mysql-org/go-mysql/replication"
 	aurora "github.com/netSkope/mars-lib/src/database/aurora"
@@ -16,6 +19,7 @@ type RowEvent struct {
 	TxID      string
 	Namespace string
 	Pop       string
+	Change    agg.KVChange
 }
 
 // ExtractNamespacePop parses table name of form `config_data_{namespace}_{POP}`.
@@ -142,9 +146,108 @@ func processReplicationEvent(binlogEvent *replication.BinlogEvent, state *stream
 				mlog.GetLogger().Warnf("malformed config_data table name, skip row: table=%s", tableName)
 				return
 			}
-			sink(RowEvent{TxID: state.currentTxID, Namespace: namespace, Pop: pop})
+			changes, _, ok, err := handleRowsEvent(binlogEvent)
+			if err != nil {
+				obs.IncError()
+				mlog.GetLogger().Errorf("rows mapping error: %v", err)
+				return
+			}
+			if !ok {
+				return
+			}
+			for _, ch := range changes {
+				sink(RowEvent{TxID: state.currentTxID, Namespace: namespace, Pop: pop, Change: ch})
+			}
 		}
 	default:
 		// ignore
 	}
+}
+
+// handleRowsEvent converts a RowsEvent into KV changes and operation.
+func handleRowsEvent(e *replication.BinlogEvent) (changes []agg.KVChange, op agg.OperationType, ok bool, err error) {
+	rowsEvent, isRows := e.Event.(*replication.RowsEvent)
+	if !isRows {
+		return nil, "", false, nil
+	}
+	switch e.Header.EventType {
+	case replication.WRITE_ROWS_EVENTv0, replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2:
+		op = agg.OperationCreate
+		for _, row := range rowsEvent.Rows {
+			ch, valid, mapErr := handleRowChange(row, op)
+			if mapErr != nil {
+				return nil, "", false, mapErr
+			}
+			if !valid {
+				continue
+			}
+			changes = append(changes, ch)
+		}
+		return changes, op, true, nil
+	case replication.UPDATE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2:
+		op = agg.OperationUpdate
+		if len(rowsEvent.Rows)%2 != 0 {
+			return nil, "", false, fmt.Errorf("unexpected UPDATE rows length: %d", len(rowsEvent.Rows))
+		}
+		for i := 0; i < len(rowsEvent.Rows); i += 2 {
+			after := rowsEvent.Rows[i+1]
+			ch, valid, mapErr := handleRowChange(after, op)
+			if mapErr != nil {
+				return nil, "", false, mapErr
+			}
+			if !valid {
+				continue
+			}
+			changes = append(changes, ch)
+		}
+		return changes, op, true, nil
+	case replication.DELETE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2:
+		op = agg.OperationDelete
+		for _, row := range rowsEvent.Rows {
+			ch, valid, mapErr := handleRowChange(row, op)
+			if mapErr != nil {
+				return nil, "", false, mapErr
+			}
+			if !valid {
+				continue
+			}
+			changes = append(changes, ch)
+		}
+		return changes, op, true, nil
+	default:
+		return nil, "", false, nil
+	}
+}
+
+// handleRowChange maps a single row to KVChange. Expected columns: [config_key, config_value, tenant]
+func handleRowChange(row []interface{}, op agg.OperationType) (ch agg.KVChange, valid bool, err error) {
+	if len(row) < 2 {
+		return agg.KVChange{}, false, fmt.Errorf("row too short: %d", len(row))
+	}
+	var keyStr string
+	switch v := row[0].(type) {
+	case []byte:
+		keyStr = string(v)
+	case string:
+		keyStr = v
+	default:
+		return agg.KVChange{}, false, fmt.Errorf("unexpected key type: %T", row[0])
+	}
+	if keyStr == "" {
+		return agg.KVChange{}, false, nil
+	}
+	var valueBytes []byte
+	if row[1] == nil {
+		valueBytes = nil
+	} else {
+		switch v := row[1].(type) {
+		case []byte:
+			valueBytes = v
+		case string:
+			valueBytes = []byte(v)
+		default:
+			return agg.KVChange{}, false, fmt.Errorf("unexpected value type: %T", row[1])
+		}
+	}
+	return agg.KVChange{Key: keyStr, Value: valueBytes, Operation: op}, true, nil
 }
