@@ -38,7 +38,6 @@ type Aggregator struct {
 type txBatchState struct {
 	pendingKV map[string]KVChange
 	index     int
-	startedAt time.Time
 }
 
 // DefaultMaxBatchSize is used if a non-positive max batch size is provided.
@@ -58,7 +57,6 @@ func (b *Aggregator) Begin(txID uint64) {
 		b.txs[txID] = &txBatchState{
 			pendingKV: make(map[string]KVChange),
 			index:     0,
-			startedAt: time.Now(),
 		}
 	}
 }
@@ -74,7 +72,7 @@ func (b *Aggregator) ApplyChange(txID uint64, change KVChange) (Batch, bool) {
 
 	state, ok := b.txs[txID]
 	if !ok {
-		state = &txBatchState{pendingKV: make(map[string]KVChange), startedAt: time.Now()}
+		state = &txBatchState{pendingKV: make(map[string]KVChange)}
 		b.txs[txID] = state
 	}
 
@@ -134,8 +132,18 @@ func (b *Aggregator) flushBatch(txID uint64, state *txBatchState) Batch {
 
 	// Metrics + Log flush event (latency from tx begin)
 	var secs float64
-	if !state.startedAt.IsZero() {
-		secs = time.Since(state.startedAt).Seconds()
+	// Compute latency from earliest read timestamp among items in this batch.
+	var earliest time.Time
+	for _, it := range items {
+		if it.ReadAt.IsZero() {
+			continue
+		}
+		if earliest.IsZero() || it.ReadAt.Before(earliest) {
+			earliest = it.ReadAt
+		}
+	}
+	if !earliest.IsZero() {
+		secs = time.Since(earliest).Seconds()
 	}
 	obs.ObserveFlush(len(items), secs)
 	slog.Infof("batch flush: tx=%d index=%d items=%d", batch.TxID, batch.BatchIndex, len(batch.Items))

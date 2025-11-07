@@ -84,6 +84,7 @@ func StreamBinlog(ctx context.Context, src BinlogEventSource, sink func(RowEvent
 			obs.IncError()
 			slog.Warnf("binlog transient error (attempt %d/%d): %v", retries, retryLimit, err)
 			if retries > retryLimit {
+				obs.IncError()
 				slog.Errorf("binlog transient error exceeded retries: %v", err)
 				return
 			}
@@ -148,13 +149,13 @@ func processReplicationEvent(binlogEvent *replication.BinlogEvent, state *stream
 			tableName := state.tableIDToName[rowsEvent.TableID]
 			namespace, pop, valid := ExtractNamespacePop(tableName)
 			if !valid {
-				obs.IncError()
+				obs.IncParseError()
 				slog.Errorf("malformed config_data table name, skip row: table=%s txid=%d", tableName, state.currentTxID)
 				return
 			}
 			changes, _, ok, err := handleRowsEvent(binlogEvent)
 			if err != nil {
-				obs.IncError()
+				obs.IncParseError()
 				slog.Errorf("rows mapping error: table=%s txid=%d event=%s err=%v", tableName, state.currentTxID, binlogEvent.Header.EventType, err)
 				return
 			}
@@ -162,6 +163,7 @@ func processReplicationEvent(binlogEvent *replication.BinlogEvent, state *stream
 				return
 			}
 			for _, ch := range changes {
+				obs.IncProcessedRow()
 				sink(RowEvent{TxID: state.currentTxID, Namespace: namespace, Pop: pop, Change: ch})
 			}
 		}
@@ -187,6 +189,8 @@ func handleRowsEvent(e *replication.BinlogEvent) (changes []agg.KVChange, op agg
 			if !valid {
 				continue
 			}
+			// Stamp read timestamp at mapping time
+			ch.ReadAt = time.Now()
 			changes = append(changes, ch)
 		}
 		return changes, op, true, nil
@@ -204,6 +208,7 @@ func handleRowsEvent(e *replication.BinlogEvent) (changes []agg.KVChange, op agg
 			if !valid {
 				continue
 			}
+			ch.ReadAt = time.Now()
 			changes = append(changes, ch)
 		}
 		return changes, op, true, nil
@@ -217,6 +222,7 @@ func handleRowsEvent(e *replication.BinlogEvent) (changes []agg.KVChange, op agg
 			if !valid {
 				continue
 			}
+			ch.ReadAt = time.Now()
 			changes = append(changes, ch)
 		}
 		return changes, op, true, nil

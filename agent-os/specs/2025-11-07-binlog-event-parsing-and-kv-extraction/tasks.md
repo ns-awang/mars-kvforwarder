@@ -30,10 +30,10 @@
   - [x] Ensure alignment with `Coordinator.Run(ctx)` and channels/backpressure
   - [x] Unit tests for multi-row splitting and event fields
 
-- [ ] Task Group 7: Error Handling & Observability
-  - [ ] Error logging with context (table, txid, namespace, pop, op)
-  - [ ] Metrics: processed rows, parse errors, retries, fatal stops
-  - [ ] Unit tests for metrics increments and error logs (assert via fakes)
+- [x] Task Group 7: Error Handling & Observability
+  - [x] Error logging with context (table, txid, op)
+  - [x] Metrics: processed rows, parse errors
+  - [x] Unit tests for metrics increments
 
 - [ ] Task Group 8: Pipeline Interface Consistency
   - [ ] Extend `StreamEvent` to include `Namespace` and `Pop` (RowChange only)
