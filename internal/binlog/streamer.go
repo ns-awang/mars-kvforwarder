@@ -178,9 +178,11 @@ func handleRowsEvent(e *replication.BinlogEvent) (changes []agg.KVChange, op agg
 	if !isRows {
 		return nil, "", false, nil
 	}
+	readAt := time.Now()
 	switch e.Header.EventType {
 	case replication.WRITE_ROWS_EVENTv0, replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2:
 		op = agg.OperationCreate
+		changes = make([]agg.KVChange, 0, len(rowsEvent.Rows))
 		for _, row := range rowsEvent.Rows {
 			ch, valid, mapErr := handleRowChange(row, op)
 			if mapErr != nil {
@@ -189,8 +191,7 @@ func handleRowsEvent(e *replication.BinlogEvent) (changes []agg.KVChange, op agg
 			if !valid {
 				continue
 			}
-			// Stamp read timestamp at mapping time
-			ch.ReadAt = time.Now()
+			ch.ReadAt = readAt
 			changes = append(changes, ch)
 		}
 		return changes, op, true, nil
@@ -199,6 +200,7 @@ func handleRowsEvent(e *replication.BinlogEvent) (changes []agg.KVChange, op agg
 		if len(rowsEvent.Rows)%2 != 0 {
 			return nil, "", false, fmt.Errorf("unexpected UPDATE rows length: %d", len(rowsEvent.Rows))
 		}
+		changes = make([]agg.KVChange, 0, len(rowsEvent.Rows)/2)
 		for i := 0; i < len(rowsEvent.Rows); i += 2 {
 			after := rowsEvent.Rows[i+1]
 			ch, valid, mapErr := handleRowChange(after, op)
@@ -208,12 +210,13 @@ func handleRowsEvent(e *replication.BinlogEvent) (changes []agg.KVChange, op agg
 			if !valid {
 				continue
 			}
-			ch.ReadAt = time.Now()
+			ch.ReadAt = readAt
 			changes = append(changes, ch)
 		}
 		return changes, op, true, nil
 	case replication.DELETE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2:
 		op = agg.OperationDelete
+		changes = make([]agg.KVChange, 0, len(rowsEvent.Rows))
 		for _, row := range rowsEvent.Rows {
 			ch, valid, mapErr := handleRowChange(row, op)
 			if mapErr != nil {
@@ -222,7 +225,7 @@ func handleRowsEvent(e *replication.BinlogEvent) (changes []agg.KVChange, op agg
 			if !valid {
 				continue
 			}
-			ch.ReadAt = time.Now()
+			ch.ReadAt = readAt
 			changes = append(changes, ch)
 		}
 		return changes, op, true, nil
