@@ -78,7 +78,8 @@ func TestStreamBinlogEmitsOnSuccessAndResetsBackoff(t *testing.T) {
 
 func TestStreamBinlogDemarcationTxID(t *testing.T) {
 	// GTID -> BEGIN -> TABLE_MAP -> two ROWS -> COMMIT
-	gtid := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.GTID_EVENT}}
+	sid := []byte{0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}
+	gtid := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.GTID_EVENT}, Event: &replication.GTIDEvent{SID: sid, GNO: 7}}
 	begin := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.QUERY_EVENT}, Event: &replication.QueryEvent{Query: []byte("BEGIN")}}
 	tmap := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.TABLE_MAP_EVENT}, Event: &replication.TableMapEvent{TableID: 1, Table: []byte("config_data_ns1_POP1")}}
 	r1 := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.WRITE_ROWS_EVENTv2}, Event: &replication.RowsEvent{TableID: 1, Rows: [][]interface{}{{[]byte("k1"), []byte("v1")}}}}
@@ -89,15 +90,18 @@ func TestStreamBinlogDemarcationTxID(t *testing.T) {
 	defer cancel()
 	var gotNS []string
 	var gotPOP []string
+	var gotTxIDs []string
 	// cancel after emitting two rows
 	go func() { time.Sleep(100 * time.Millisecond); cancel() }()
 	_ = StreamBinlog(ctx, src, func(ev RowEvent) {
 		gotNS = append(gotNS, ev.Namespace)
 		gotPOP = append(gotPOP, ev.Pop)
+		gotTxIDs = append(gotTxIDs, ev.TxID)
 	})
 	require.GreaterOrEqual(t, len(gotNS), 2)
 	require.Equal(t, "ns1", gotNS[0])
 	require.Equal(t, "POP1", gotPOP[0])
+	require.NotEmpty(t, gotTxIDs[0])
 }
 
 func TestStreamBinlogMapsInsertAndDelete(t *testing.T) {
