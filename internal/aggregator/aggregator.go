@@ -63,7 +63,6 @@ func (b *Aggregator) Begin(txID uint64) {
 
 // ApplyChange adds a change to the current batch window. If the number of unique
 // keys in the window reaches MaxBatchSize, a batch is emitted with BatchTotal=0.
-// ApplyChange applies a change; returns a batch if threshold reached.
 func (b *Aggregator) ApplyChange(txID uint64, change KVChange) (Batch, bool) {
 	if change.Key == "" {
 		slog.Warnf("skip change with empty key: tx=%d", txID)

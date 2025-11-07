@@ -9,6 +9,8 @@ import (
 
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/stretchr/testify/require"
+
+	agg "mars-kvforwarder/internal/aggregator"
 )
 
 type fakeStreamer struct {
@@ -41,10 +43,10 @@ func TestStreamBinlogRetriesAndStopsOnFatal(t *testing.T) {
 	src := &fakeStreamer{errs: []error{TransientError{Err: errors.New("tmp1")}, TransientError{Err: errors.New("tmp2")}, errors.New("fatal")}}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	sinkCount := int32(0)
-	err := StreamBinlog(ctx, src, func(RowEvent) { atomic.AddInt32(&sinkCount, 1) })
+	out := make(chan agg.StreamEvent, 4)
+	err := StreamBinlog(ctx, src, out)
 	require.Error(t, err)
-	require.Equal(t, int32(0), sinkCount)
+	require.Equal(t, 0, len(out))
 }
 
 func TestStreamBinlogStopsAfterExceededRetries(t *testing.T) {
@@ -52,10 +54,10 @@ func TestStreamBinlogStopsAfterExceededRetries(t *testing.T) {
 	src := &fakeStreamer{errs: []error{TransientError{Err: errors.New("tmp1")}, TransientError{Err: errors.New("tmp2")}, TransientError{Err: errors.New("tmp3")}, TransientError{Err: errors.New("tmp4")}}}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	sinkCount := int32(0)
-	err := StreamBinlog(ctx, src, func(RowEvent) { atomic.AddInt32(&sinkCount, 1) })
+	out := make(chan agg.StreamEvent, 1)
+	err := StreamBinlog(ctx, src, out)
 	require.Error(t, err)
-	require.Equal(t, int32(0), sinkCount)
+	require.Equal(t, 0, len(out))
 }
 
 func TestStreamBinlogEmitsOnSuccessAndResetsBackoff(t *testing.T) {
@@ -66,14 +68,11 @@ func TestStreamBinlogEmitsOnSuccessAndResetsBackoff(t *testing.T) {
 	src := &fakeStreamer{errs: []error{TransientError{Err: errors.New("tmp1")}}, events: []*replication.BinlogEvent{tmap, rows1, rows2}}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	sinkCount := int32(0)
-	// stop after two successes by cancelling context
-	go func() {
-		time.Sleep(200 * time.Millisecond)
-		cancel()
-	}()
-	_ = StreamBinlog(ctx, src, func(RowEvent) { atomic.AddInt32(&sinkCount, 1) })
-	require.GreaterOrEqual(t, sinkCount, int32(1))
+	out := make(chan agg.StreamEvent, 10)
+	// stop after brief delay
+	go func() { time.Sleep(200 * time.Millisecond); cancel() }()
+	_ = StreamBinlog(ctx, src, out)
+	require.GreaterOrEqual(t, len(out), 1)
 }
 
 func TestStreamBinlogDemarcationTxID(t *testing.T) {
@@ -88,16 +87,21 @@ func TestStreamBinlogDemarcationTxID(t *testing.T) {
 	src := &fakeStreamer{events: []*replication.BinlogEvent{gtid, begin, tmap, r1, r2, commit}}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
+	out := make(chan agg.StreamEvent, 10)
+	go func() { time.Sleep(120 * time.Millisecond); cancel() }()
+	_ = StreamBinlog(ctx, src, out)
+	// Collect row changes
 	var gotNS []string
 	var gotPOP []string
 	var gotTxIDs []uint64
-	// cancel after emitting two rows
-	go func() { time.Sleep(100 * time.Millisecond); cancel() }()
-	_ = StreamBinlog(ctx, src, func(ev RowEvent) {
-		gotNS = append(gotNS, ev.Namespace)
-		gotPOP = append(gotPOP, ev.Pop)
-		gotTxIDs = append(gotTxIDs, ev.TxID)
-	})
+	for len(out) > 0 {
+		ev := <-out
+		if ev.Type == agg.RowChange {
+			gotNS = append(gotNS, ev.Namespace)
+			gotPOP = append(gotPOP, ev.Pop)
+			gotTxIDs = append(gotTxIDs, ev.TxID)
+		}
+	}
 	require.GreaterOrEqual(t, len(gotNS), 2)
 	require.Equal(t, "ns1", gotNS[0])
 	require.Equal(t, "POP1", gotPOP[0])
@@ -117,13 +121,16 @@ func TestStreamBinlogMapsInsertAndDelete(t *testing.T) {
 	src := &fakeStreamer{events: []*replication.BinlogEvent{tmap, ins, del}}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	var got []RowEvent
-	_ = StreamBinlog(ctx, src, func(ev RowEvent) {
-		got = append(got, ev)
-		if len(got) >= 3 {
-			cancel()
+	out := make(chan agg.StreamEvent, 10)
+	go func() { time.Sleep(150 * time.Millisecond); cancel() }()
+	_ = StreamBinlog(ctx, src, out)
+	var got []agg.StreamEvent
+	for len(out) > 0 {
+		ev := <-out
+		if ev.Type == agg.RowChange {
+			got = append(got, ev)
 		}
-	})
+	}
 	require.GreaterOrEqual(t, len(got), 3)
 	// First two from INSERT
 	require.Equal(t, "k1", got[0].Change.Key)
@@ -144,13 +151,16 @@ func TestStreamBinlogMapsUpdatePostImageOnly(t *testing.T) {
 	src := &fakeStreamer{events: []*replication.BinlogEvent{tmap, upd}}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	var got []RowEvent
-	_ = StreamBinlog(ctx, src, func(ev RowEvent) {
-		got = append(got, ev)
-		if len(got) >= 2 {
-			cancel()
+	out := make(chan agg.StreamEvent, 10)
+	go func() { time.Sleep(150 * time.Millisecond); cancel() }()
+	_ = StreamBinlog(ctx, src, out)
+	var got []agg.StreamEvent
+	for len(out) > 0 {
+		ev := <-out
+		if ev.Type == agg.RowChange {
+			got = append(got, ev)
 		}
-	})
+	}
 	require.GreaterOrEqual(t, len(got), 2)
 	require.Equal(t, "k1", got[0].Change.Key)
 	require.Equal(t, []byte("new"), got[0].Change.Value)

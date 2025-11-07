@@ -11,7 +11,7 @@ const (
 	TxnCommit
 )
 
-// StreamEvent represents an input event from the binlog streaming component.
+// StreamEvent is the input event consumed by the aggregator.
 type StreamEvent struct {
 	Type      EventType
 	TxID      uint64
@@ -20,8 +20,7 @@ type StreamEvent struct {
 	Change    KVChange // only for RowChange
 }
 
-// Coordinator wires the aggregator to input/output channels and enforces backpressure
-// via a bounded output channel. It does not handle GTID persistence.
+// Coordinator connects input events to batch output with backpressure.
 type Coordinator struct {
 	in         chan StreamEvent
 	out        chan Batch
@@ -42,7 +41,6 @@ func NewCoordinator(inputBufferSize, outputBufferSize, maxBatchSize int) (*Coord
 	return c, c.in, c.out
 }
 
-// Run processes events until the input channel is closed.
 func (c *Coordinator) Run(ctx context.Context) {
 	for {
 		select {
@@ -57,11 +55,11 @@ func (c *Coordinator) Run(ctx context.Context) {
 				c.aggregator.Begin(ev.TxID)
 			case RowChange:
 				if batch, hasBatch := c.aggregator.ApplyChange(ev.TxID, ev.Change); hasBatch {
-					c.out <- batch // blocks when output buffer is full (backpressure)
+					c.out <- batch
 				}
 			case TxnCommit:
 				if batch, hasBatch := c.aggregator.Commit(ev.TxID); hasBatch {
-					c.out <- batch // blocks until consumer catches up
+					c.out <- batch
 				}
 			}
 		}

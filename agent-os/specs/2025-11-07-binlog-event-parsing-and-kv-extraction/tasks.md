@@ -36,9 +36,9 @@
   - [x] Unit tests for metrics increments
 
 - [ ] Task Group 8: Pipeline Interface Consistency
-  - [ ] Extend `StreamEvent` to include `Namespace` and `Pop` (RowChange only)
-  - [ ] Verify aggregator receives per-row KV unchanged (value pass-through)
-  - [ ] Unit tests to validate event struct compatibility and aggregator handshake
+  - [x] Extend `StreamEvent` to include `Namespace` and `Pop` (RowChange only)
+  - [x] Verify aggregator receives per-row KV unchanged (value pass-through)
+  - [x] Unit tests to validate event struct compatibility and aggregator handshake
 
 - [ ] Task Group 9: Production Review & Completeness
   - [ ] Review code for performance (allocations, logging volume) and failure modes
