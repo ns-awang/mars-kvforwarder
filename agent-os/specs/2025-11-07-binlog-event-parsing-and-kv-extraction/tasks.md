@@ -13,10 +13,10 @@
   - [x] Attach TxID to emitted per-row events
   - [x] Unit tests for demarcation and TxID tagging
 
-- [ ] Task Group 4: Table Name Parsing (namespace/pop)
-  - [ ] Use CONFIG_DATA_TABLE_PREFIX (e.g., `config_data_`) to extract `{namespace}_{POP}`
-  - [ ] Validate and handle malformed names (metric + error log)
-  - [ ] Unit tests for happy-path and malformed table names
+- [x] Task Group 4: Table Name Parsing (namespace/pop)
+  - [x] Use CONFIG_DATA_TABLE_PREFIX (e.g., `config_data_`) to extract `{namespace}_{POP}`
+  - [x] Validate and handle malformed names (metric + error log)
+  - [x] Unit tests for happy-path and malformed table names
 
 - [ ] Task Group 5: Row Mapping to KV
   - [ ] Key = `config_key` (non-NULL); skip+error log if NULL
