@@ -13,7 +13,7 @@ import (
 func TestAggregatorFlushOnMaxSize(t *testing.T) {
 	b := NewAggregator()
 	b.MaxBatchSize = 50
-	tx := "tx-10"
+	var tx uint64 = 10
 	b.Begin(tx)
 
 	var emitted []Batch
@@ -49,7 +49,7 @@ func TestAggregatorFlushOnMaxSize(t *testing.T) {
 func TestAggregatorCommitOnly(t *testing.T) {
 	b := NewAggregator()
 	b.MaxBatchSize = 50
-	tx := "tx-11"
+	var tx uint64 = 11
 	b.Begin(tx)
 	for i := 0; i < 10; i++ {
 		_, _ = b.ApplyChange(tx, KVChange{Key: keyN(i), Value: []byte("v")})
@@ -63,7 +63,7 @@ func TestAggregatorCommitOnly(t *testing.T) {
 func TestAggregatorLastWriteWinsWithinWindow(t *testing.T) {
 	b := NewAggregator()
 	b.MaxBatchSize = 50
-	tx := "tx-12"
+	var tx uint64 = 12
 	b.Begin(tx)
 	_, _ = b.ApplyChange(tx, KVChange{Key: "k", Value: []byte("a"), Operation: OperationCreate})
 	_, _ = b.ApplyChange(tx, KVChange{Key: "k", Value: []byte("b"), Operation: OperationUpdate})
@@ -76,7 +76,7 @@ func TestAggregatorLastWriteWinsWithinWindow(t *testing.T) {
 func TestHeadersAcrossSplitBatches(t *testing.T) {
 	a := NewAggregator()
 	a.MaxBatchSize = 2 // force split after 2 unique keys
-	tx := "tx-split"
+	var tx uint64 = 99
 	a.Begin(tx)
 
 	// First two changes -> first mid-tx batch (index=1, total=0)
@@ -109,8 +109,8 @@ func TestHeadersAcrossSplitBatches(t *testing.T) {
 	assert.Equal(t, 2, batch2.BatchTotal)
 
 	// Headers for both batches
-	h1 := BuildHeaders(batch1, "prev1", "curr1")
-	h2 := BuildHeaders(batch2, "prev2", "curr2")
+	h1 := BuildHeaders(batch1, 1, 2)
+	h2 := BuildHeaders(batch2, 3, 4)
 	// Basic spot-checks
 	m1 := map[string]string{}
 	for _, hd := range h1 {

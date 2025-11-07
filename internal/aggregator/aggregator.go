@@ -20,7 +20,7 @@ var slog = mlog.GetLogger()
 // IdempotencyKey should be deterministic (e.g., txID:batchIndex) and can be
 // combined with headers downstream.
 type Batch struct {
-	TxID           string
+	TxID           uint64
 	BatchIndex     int
 	BatchTotal     int
 	Items          []KVChange
@@ -32,7 +32,7 @@ type Batch struct {
 // each batch window, flushing on max size or commit.
 type Aggregator struct {
 	MaxBatchSize int
-	txs          map[string]*txBatchState
+	txs          map[uint64]*txBatchState
 }
 
 type txBatchState struct {
@@ -49,11 +49,11 @@ func NewAggregator() *Aggregator {
 	obs.Init(nil)
 	return &Aggregator{
 		MaxBatchSize: DefaultMaxBatchSize,
-		txs:          make(map[string]*txBatchState),
+		txs:          make(map[uint64]*txBatchState),
 	}
 }
 
-func (b *Aggregator) Begin(txID string) {
+func (b *Aggregator) Begin(txID uint64) {
 	if _, ok := b.txs[txID]; !ok {
 		b.txs[txID] = &txBatchState{
 			pendingKV: make(map[string]KVChange),
@@ -66,9 +66,9 @@ func (b *Aggregator) Begin(txID string) {
 // ApplyChange adds a change to the current batch window. If the number of unique
 // keys in the window reaches MaxBatchSize, a batch is emitted with BatchTotal=0.
 // ApplyChange applies a change; returns a batch if threshold reached.
-func (b *Aggregator) ApplyChange(txID string, change KVChange) (Batch, bool) {
+func (b *Aggregator) ApplyChange(txID uint64, change KVChange) (Batch, bool) {
 	if change.Key == "" {
-		slog.Warnf("skip change with empty key: tx=%s", txID)
+		slog.Warnf("skip change with empty key: tx=%d", txID)
 		return Batch{}, false
 	}
 
@@ -88,11 +88,11 @@ func (b *Aggregator) ApplyChange(txID string, change KVChange) (Batch, bool) {
 
 // Commit finalizes the transaction, emitting any remaining items as the final batch.
 // The final batch's BatchTotal will be set to the final count of batches for this tx.
-func (b *Aggregator) Commit(txID string) (Batch, bool) {
+func (b *Aggregator) Commit(txID uint64) (Batch, bool) {
 
 	state, ok := b.txs[txID]
 	if !ok {
-		slog.Errorf("commit on unknown tx: tx=%s", txID)
+		slog.Errorf("commit on unknown tx: tx=%d", txID)
 		return Batch{}, false
 	}
 
@@ -110,7 +110,7 @@ func (b *Aggregator) Commit(txID string) (Batch, bool) {
 }
 
 // flushBatch materializes the current window into a Batch and resets the window.
-func (b *Aggregator) flushBatch(txID string, state *txBatchState) Batch {
+func (b *Aggregator) flushBatch(txID uint64, state *txBatchState) Batch {
 	items := make([]KVChange, 0, len(state.pendingKV))
 	for _, ch := range state.pendingKV {
 		items = append(items, ch)
@@ -121,7 +121,7 @@ func (b *Aggregator) flushBatch(txID string, state *txBatchState) Batch {
 		BatchIndex:     state.index,
 		BatchTotal:     0,
 		Items:          items,
-		IdempotencyKey: fmt.Sprintf("%s:%d", txID, state.index),
+		IdempotencyKey: fmt.Sprintf("%d:%d", txID, state.index),
 	}
 	// Compute SHA256 across key, value, and operation for each item
 	h := sha256.New()
@@ -138,7 +138,7 @@ func (b *Aggregator) flushBatch(txID string, state *txBatchState) Batch {
 		secs = time.Since(state.startedAt).Seconds()
 	}
 	obs.ObserveFlush(len(items), secs)
-	slog.Infof("batch flush: tx=%s index=%d items=%d", batch.TxID, batch.BatchIndex, len(batch.Items))
+	slog.Infof("batch flush: tx=%d index=%d items=%d", batch.TxID, batch.BatchIndex, len(batch.Items))
 
 	// reset window
 	state.pendingKV = make(map[string]KVChange)

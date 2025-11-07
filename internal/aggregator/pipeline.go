@@ -14,7 +14,7 @@ const (
 // StreamEvent represents an input event from the binlog streaming component.
 type StreamEvent struct {
 	Type   EventType
-	TxID   string
+	TxID   uint64
 	Change KVChange // only for RowChange
 }
 

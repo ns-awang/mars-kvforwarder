@@ -2,7 +2,6 @@ package binlog
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -19,7 +18,7 @@ import (
 var slog = mlog.GetLogger()
 
 type RowEvent struct {
-	TxID      string
+	TxID      uint64
 	Namespace string
 	Pop       string
 	Change    agg.KVChange
@@ -65,7 +64,7 @@ func StreamBinlog(ctx context.Context, src BinlogEventSource, sink func(RowEvent
 	backoff := initialBackoff
 	retries := 0
 	state := streamState{
-		currentTxID:   "",
+		currentTxID:   0,
 		tableIDToName: make(map[uint64]string),
 	}
 	var ev *replication.BinlogEvent
@@ -116,7 +115,7 @@ func StreamBinlog(ctx context.Context, src BinlogEventSource, sink func(RowEvent
 
 // streamState holds contextual information for processing events.
 type streamState struct {
-	currentTxID   string
+	currentTxID   uint64
 	tableIDToName map[uint64]string
 }
 
@@ -125,22 +124,19 @@ func processReplicationEvent(binlogEvent *replication.BinlogEvent, state *stream
 	switch binlogEvent.Header.EventType {
 	case replication.GTID_EVENT:
 		if ge, ok := binlogEvent.Event.(*replication.GTIDEvent); ok {
-			if uuid, ok2 := formatUUIDFromSID(ge.SID); ok2 {
-				state.currentTxID = fmt.Sprintf("%s:%d", uuid, ge.GNO)
-			} else {
-				state.currentTxID = ""
-			}
+			// Use only GNO as TxID per downstream tracking simplicity.
+			state.currentTxID = uint64(ge.GNO)
 		} else {
-			state.currentTxID = ""
+			state.currentTxID = 0
 		}
 	case replication.QUERY_EVENT:
 		qe, _ := binlogEvent.Event.(*replication.QueryEvent)
 		normalizedQuery := strings.TrimSpace(strings.ToUpper(string(qe.Query)))
 		if normalizedQuery == "COMMIT" {
-			state.currentTxID = ""
+			state.currentTxID = 0
 		}
 	case replication.XID_EVENT:
-		state.currentTxID = ""
+		state.currentTxID = 0
 	case replication.TABLE_MAP_EVENT:
 		if tme, ok := binlogEvent.Event.(*replication.TableMapEvent); ok {
 			state.tableIDToName[tme.TableID] = string(tme.Table)
@@ -153,13 +149,13 @@ func processReplicationEvent(binlogEvent *replication.BinlogEvent, state *stream
 			namespace, pop, valid := ExtractNamespacePop(tableName)
 			if !valid {
 				obs.IncError()
-				slog.Errorf("malformed config_data table name, skip row: table=%s txid=%s", tableName, state.currentTxID)
+				slog.Errorf("malformed config_data table name, skip row: table=%s txid=%d", tableName, state.currentTxID)
 				return
 			}
 			changes, _, ok, err := handleRowsEvent(binlogEvent)
 			if err != nil {
 				obs.IncError()
-				slog.Errorf("rows mapping error: table=%s txid=%s namespace=%s pop=%s err=%v", tableName, state.currentTxID, namespace, pop, err)
+				slog.Errorf("rows mapping error: table=%s txid=%d event=%s err=%v", tableName, state.currentTxID, binlogEvent.Header.EventType, err)
 				return
 			}
 			if !ok {
@@ -260,23 +256,4 @@ func handleRowChange(row []interface{}, op agg.OperationType) (ch agg.KVChange, 
 		}
 	}
 	return agg.KVChange{Key: keyStr, Value: valueBytes, Operation: op}, true, nil
-}
-
-// formatUUIDFromSID converts a 16-byte SID to canonical UUID string.
-func formatUUIDFromSID(sid []byte) (string, bool) {
-	if len(sid) != 16 {
-		return "", false
-	}
-	b := make([]byte, 36)
-	// 8-4-4-4-12
-	hex.Encode(b[0:8], sid[0:4])
-	b[8] = '-'
-	hex.Encode(b[9:13], sid[4:6])
-	b[13] = '-'
-	hex.Encode(b[14:18], sid[6:8])
-	b[18] = '-'
-	hex.Encode(b[19:23], sid[8:10])
-	b[23] = '-'
-	hex.Encode(b[24:36], sid[10:16])
-	return string(b), true
 }

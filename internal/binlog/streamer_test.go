@@ -90,7 +90,7 @@ func TestStreamBinlogDemarcationTxID(t *testing.T) {
 	defer cancel()
 	var gotNS []string
 	var gotPOP []string
-	var gotTxIDs []string
+	var gotTxIDs []uint64
 	// cancel after emitting two rows
 	go func() { time.Sleep(100 * time.Millisecond); cancel() }()
 	_ = StreamBinlog(ctx, src, func(ev RowEvent) {
@@ -101,7 +101,7 @@ func TestStreamBinlogDemarcationTxID(t *testing.T) {
 	require.GreaterOrEqual(t, len(gotNS), 2)
 	require.Equal(t, "ns1", gotNS[0])
 	require.Equal(t, "POP1", gotPOP[0])
-	require.NotEmpty(t, gotTxIDs[0])
+	require.Equal(t, uint64(7), gotTxIDs[0])
 }
 
 func TestStreamBinlogMapsInsertAndDelete(t *testing.T) {

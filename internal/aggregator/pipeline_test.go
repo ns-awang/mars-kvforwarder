@@ -17,14 +17,14 @@ func TestCoordinatorBackpressureOnOutput(t *testing.T) {
 	go coord.Run(ctx)
 
 	// Begin tx and send 2 unique changes -> one batch emitted
-	in <- StreamEvent{Type: TxnBegin, TxID: "t1"}
-	in <- StreamEvent{Type: RowChange, TxID: "t1", Change: KVChange{Key: "a", Value: []byte("1")}}
-	in <- StreamEvent{Type: RowChange, TxID: "t1", Change: KVChange{Key: "b", Value: []byte("2")}}
+	in <- StreamEvent{Type: TxnBegin, TxID: 1}
+	in <- StreamEvent{Type: RowChange, TxID: 1, Change: KVChange{Key: "a", Value: []byte("1")}}
+	in <- StreamEvent{Type: RowChange, TxID: 1, Change: KVChange{Key: "b", Value: []byte("2")}}
 
 	// Next change should try to create second batch on commit, but the out buffer
 	// is still full (we have not consumed the first batch yet), so send blocks.
-	in <- StreamEvent{Type: RowChange, TxID: "t1", Change: KVChange{Key: "c", Value: []byte("3")}}
-	in <- StreamEvent{Type: TxnCommit, TxID: "t1"}
+	in <- StreamEvent{Type: RowChange, TxID: 1, Change: KVChange{Key: "c", Value: []byte("3")}}
+	in <- StreamEvent{Type: TxnCommit, TxID: 1}
 
 	// Drain the first batch (unblocks coordinator so second can be enqueued)
 	var b1 Batch

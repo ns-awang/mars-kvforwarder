@@ -13,7 +13,7 @@ func TestBuildHeadersIncludesRequiredFields(t *testing.T) {
 	// Build a real batch via aggregator to verify checksum correctness
 	b := NewAggregator()
 	b.MaxBatchSize = 50
-	tx := "tx-100"
+	var tx uint64 = 100
 	b.Begin(tx)
 	_, _ = b.ApplyChange(tx, KVChange{Key: "a", Value: []byte("foo")})
 	_, _ = b.ApplyChange(tx, KVChange{Key: "b", Value: []byte("bar")})
@@ -30,8 +30,8 @@ func TestBuildHeadersIncludesRequiredFields(t *testing.T) {
 	expectedSHA := hex.EncodeToString(h.Sum(nil))
 	assert.Equal(t, expectedSHA, batch.PayloadSHA256)
 
-	prev := "prev-gtid"
-	curr := "curr-gtid"
+	var prev uint64 = 10
+	var curr uint64 = 11
 	headers := BuildHeaders(batch, prev, curr)
 
 	// Collect headers into a map for easy lookup
@@ -41,8 +41,8 @@ func TestBuildHeadersIncludesRequiredFields(t *testing.T) {
 	}
 
 	assert.Equal(t, expectedSHA, m[HeaderSHA256])
-	assert.Equal(t, prev, m[HeaderPrevTxID])
-	assert.Equal(t, curr, m[HeaderCurrTxID])
+	assert.Equal(t, "10", m[HeaderPrevTxID])
+	assert.Equal(t, "11", m[HeaderCurrTxID])
 	assert.Equal(t, "1", m[HeaderBatchIndex])
 	assert.Equal(t, "1", m[HeaderBatchTotal])
 }
