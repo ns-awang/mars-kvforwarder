@@ -60,9 +60,10 @@ func TestStreamBinlogStopsAfterExceededRetries(t *testing.T) {
 
 func TestStreamBinlogEmitsOnSuccessAndResetsBackoff(t *testing.T) {
 	// transient error, then two row events should be emitted
-	rows1 := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.WRITE_ROWS_EVENTv2}}
-	rows2 := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.WRITE_ROWS_EVENTv2}}
-	src := &fakeStreamer{errs: []error{TransientError{Err: errors.New("tmp1")}}, events: []*replication.BinlogEvent{rows1, rows2}}
+	tmap := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.TABLE_MAP_EVENT}, Event: &replication.TableMapEvent{TableID: 1, Table: []byte("config_data_ns1_POP1")}}
+	rows1 := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.WRITE_ROWS_EVENTv2}, Event: &replication.RowsEvent{TableID: 1}}
+	rows2 := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.WRITE_ROWS_EVENTv2}, Event: &replication.RowsEvent{TableID: 1}}
+	src := &fakeStreamer{errs: []error{TransientError{Err: errors.New("tmp1")}}, events: []*replication.BinlogEvent{tmap, rows1, rows2}}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	sinkCount := int32(0)
@@ -76,19 +77,25 @@ func TestStreamBinlogEmitsOnSuccessAndResetsBackoff(t *testing.T) {
 }
 
 func TestStreamBinlogDemarcationTxID(t *testing.T) {
-	// GTID -> BEGIN -> two ROWS -> COMMIT
+	// GTID -> BEGIN -> TABLE_MAP -> two ROWS -> COMMIT
 	gtid := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.GTID_EVENT}}
 	begin := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.QUERY_EVENT}, Event: &replication.QueryEvent{Query: []byte("BEGIN")}}
-	r1 := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.WRITE_ROWS_EVENTv2}}
-	r2 := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.WRITE_ROWS_EVENTv2}}
+	tmap := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.TABLE_MAP_EVENT}, Event: &replication.TableMapEvent{TableID: 1, Table: []byte("config_data_ns1_POP1")}}
+	r1 := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.WRITE_ROWS_EVENTv2}, Event: &replication.RowsEvent{TableID: 1}}
+	r2 := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.WRITE_ROWS_EVENTv2}, Event: &replication.RowsEvent{TableID: 1}}
 	commit := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.XID_EVENT}}
-	src := &fakeStreamer{events: []*replication.BinlogEvent{gtid, begin, r1, r2, commit}}
+	src := &fakeStreamer{events: []*replication.BinlogEvent{gtid, begin, tmap, r1, r2, commit}}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	var got []string
+	var gotNS []string
+	var gotPOP []string
 	// cancel after emitting two rows
 	go func() { time.Sleep(100 * time.Millisecond); cancel() }()
-	_ = StreamBinlog(ctx, src, func(ev RowEvent) { got = append(got, ev.TxID) })
-	require.GreaterOrEqual(t, len(got), 2)
-	require.Equal(t, got[0], got[1])
+	_ = StreamBinlog(ctx, src, func(ev RowEvent) {
+		gotNS = append(gotNS, ev.Namespace)
+		gotPOP = append(gotPOP, ev.Pop)
+	})
+	require.GreaterOrEqual(t, len(gotNS), 2)
+	require.Equal(t, "ns1", gotNS[0])
+	require.Equal(t, "POP1", gotPOP[0])
 }
