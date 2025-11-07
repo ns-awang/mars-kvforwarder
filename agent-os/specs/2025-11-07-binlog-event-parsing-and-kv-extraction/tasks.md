@@ -3,15 +3,15 @@
 - [ ] Task Group 1: Connector & Session Configuration (cancelled)
   - Assumption: connection and binlog settings are already provisioned per roadmap item 1
 
-- [ ] Task Group 2: Event Fetch Loop & Reconnect/Backoff
-  - [ ] Implement main fetch loop for binlog events
-  - [ ] Reconnect with exponential backoff on transient failures
-  - [ ] Unit tests for reconnect/backoff behavior
+- [x] Task Group 2: Event Fetch Loop & Reconnect/Backoff
+  - [x] Implement main fetch loop for binlog events
+  - [x] Reconnect with exponential backoff on transient failures
+  - [x] Unit tests for reconnect/backoff behavior
 
-- [ ] Task Group 3: Transaction Demarcation & TxID Extraction
-  - [ ] Detect BEGIN/COMMIT and extract TxID for each row
-  - [ ] Attach TxID to emitted per-row events
-  - [ ] Unit tests for demarcation and TxID tagging
+- [x] Task Group 3: Transaction Demarcation & TxID Extraction
+  - [x] Detect BEGIN/COMMIT and extract TxID for each row
+  - [x] Attach TxID to emitted per-row events
+  - [x] Unit tests for demarcation and TxID tagging
 
 - [ ] Task Group 4: Table Name Parsing (namespace/pop)
   - [ ] Use CONFIG_DATA_TABLE_PREFIX (e.g., `config_data_`) to extract `{namespace}_{POP}`
