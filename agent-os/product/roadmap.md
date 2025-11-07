@@ -4,7 +4,7 @@
 
 2. [ ] Binlog Event Parsing & KV Extraction — Parse binlog row change events (INSERT, UPDATE, DELETE), extract key-value pairs from table rows, identify operation type (create/update/delete), and handle different MySQL data types `M`
 
-3. [ ] Transaction Boundary Detection & Aggregation — Track transaction start/commit events, group KV pair changes within transaction boundaries, maintain sequential ordering of changes, and buffer changes until transaction commit `M`
+3. [x] Transaction Boundary Detection & Aggregation — Track transaction start/commit events, aggregate KV changes with last-write-wins per key, flush on 50 unique keys or COMMIT, and ensure atomic batches per transaction window `M`
 
 4. [ ] Kafka Data Topic Producer — Implement Kafka producer for data messages, batch up to 50 KV pair updates per message, ensure one complete transaction per message when transaction boundary is reached, and handle Kafka producer errors and retries `M`
 
