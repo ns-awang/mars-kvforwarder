@@ -28,12 +28,12 @@ Total Task Groups: 6
 #### Task Group 2: Connection Factory & Retry Logic
 **Dependencies:** Task Group 1
 
-- [ ] 2.0 Establish MySQL binlog connection with exponential backoff
-  - [ ] 2.1 Tests (3-5) covering retry backoff behavior, fatal error exit, and context cancellation
-  - [ ] 2.2 Implement connector using go-mysql with GTID enabled and ROW format assumed
-  - [ ] 2.3 Integrate exponential backoff (reusing `internal/binlog` helpers where possible)
-  - [ ] 2.4 Ensure logs identify database only; no DSN output
-  - [ ] 2.5 Run only tests from 2.1
+- [x] 2.0 Establish MySQL binlog connection with exponential backoff
+  - [x] 2.1 Tests (3-5) covering retry backoff behavior, fatal error exit, and context cancellation
+  - [x] 2.2 Implement connector using go-mysql with GTID enabled and ROW format assumed
+  - [x] 2.3 Integrate exponential backoff (reusing `internal/binlog` helpers where possible)
+  - [x] 2.4 Ensure logs identify database only; no DSN output
+  - [x] 2.5 Run only tests from 2.1
 
 **Acceptance Criteria:**
 - Connector retries transient failures with capped backoff
