@@ -2,7 +2,7 @@
 
 1. [ ] MySQL Binlog Connection & Streaming — Establish connection to MySQL server, configure binlog streaming with GTID support, and implement basic event reception loop with error handling and reconnection logic `M`
 
-2. [ ] Binlog Event Parsing & KV Extraction — Parse binlog row change events (INSERT, UPDATE, DELETE), extract key-value pairs from table rows, identify operation type (create/update/delete), and handle different MySQL data types `M`
+2. [x] Binlog Event Parsing & KV Extraction — Parse binlog row change events (INSERT, UPDATE, DELETE), extract key-value pairs from table rows, identify operation type (create/update/delete), and handle different MySQL data types `M`
 
 3. [x] Transaction Boundary Detection & Aggregation — Track transaction start/commit events, aggregate KV changes with last-write-wins per key, flush on 50 unique keys or COMMIT, and ensure atomic batches per transaction window `M`
 

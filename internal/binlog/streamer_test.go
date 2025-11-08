@@ -167,3 +167,61 @@ func TestStreamBinlogMapsUpdatePostImageOnly(t *testing.T) {
 	require.Equal(t, "k2", got[1].Change.Key)
 	require.Equal(t, []byte("b"), got[1].Change.Value)
 }
+
+func TestStreamBinlogEmitsBeginAndCommit(t *testing.T) {
+	// GTID -> BEGIN -> TABLE_MAP -> ROW -> COMMIT
+	sid := []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+	gtid := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.GTID_EVENT}, Event: &replication.GTIDEvent{SID: sid, GNO: 9}}
+	begin := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.QUERY_EVENT}, Event: &replication.QueryEvent{Query: []byte("BEGIN")}}
+	tmap := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.TABLE_MAP_EVENT}, Event: &replication.TableMapEvent{TableID: 3, Table: []byte("config_data_nsX_POPZ")}}
+	row := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.WRITE_ROWS_EVENTv2}, Event: &replication.RowsEvent{TableID: 3, Rows: [][]interface{}{{[]byte("k"), []byte("v")}}}}
+	commit := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.QUERY_EVENT}, Event: &replication.QueryEvent{Query: []byte("COMMIT")}}
+	src := &fakeStreamer{events: []*replication.BinlogEvent{gtid, begin, tmap, row, commit}}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	out := make(chan agg.StreamEvent, 10)
+	_ = StreamBinlog(ctx, src, out)
+	// Drain
+	var types []agg.EventType
+	for len(out) > 0 {
+		ev := <-out
+		types = append(types, ev.Type)
+	}
+	require.GreaterOrEqual(t, len(types), 2)
+	require.Equal(t, agg.TxnBegin, types[0])
+	require.Equal(t, agg.TxnCommit, types[len(types)-1])
+}
+
+func TestStreamBinlogSkipsMalformedTableForRows(t *testing.T) {
+	// TABLE_MAP with malformed name -> rows should be skipped
+	tmap := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.TABLE_MAP_EVENT}, Event: &replication.TableMapEvent{TableID: 5, Table: []byte("badtable")}}
+	rows := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.WRITE_ROWS_EVENTv2}, Event: &replication.RowsEvent{TableID: 5, Rows: [][]interface{}{{[]byte("k"), []byte("v")}}}}
+	src := &fakeStreamer{events: []*replication.BinlogEvent{tmap, rows}}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	out := make(chan agg.StreamEvent, 10)
+	_ = StreamBinlog(ctx, src, out)
+	// Ensure no RowChange emitted
+	for len(out) > 0 {
+		ev := <-out
+		require.NotEqual(t, agg.RowChange, ev.Type)
+	}
+}
+
+func TestStreamBinlogOddUpdateRowsAreIgnored(t *testing.T) {
+	// UPDATE with odd number of images -> mapping error -> no events
+	tmap := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.TABLE_MAP_EVENT}, Event: &replication.TableMapEvent{TableID: 7, Table: []byte("config_data_nsY_POPQ")}}
+	upd := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.UPDATE_ROWS_EVENTv2}, Event: &replication.RowsEvent{TableID: 7, Rows: [][]interface{}{
+		{[]byte("k1"), []byte("old")}, // before only, missing after
+	}}}
+	src := &fakeStreamer{events: []*replication.BinlogEvent{tmap, upd}}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	out := make(chan agg.StreamEvent, 10)
+	_ = StreamBinlog(ctx, src, out)
+	// No RowChange expected
+	for len(out) > 0 {
+		ev := <-out
+		require.NotEqual(t, agg.RowChange, ev.Type)
+	}
+}

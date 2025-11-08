@@ -12,7 +12,7 @@ Parse MySQL ROW binlog events from `config_data_{namespace}_{POP}` tables and em
 **Parsing**
 - Process MySQL binlog in ROW format; support `INSERT`, `UPDATE` (post‑image), and `DELETE`.
 - For a multi‑row RowEvent, emit a separate row event per row (row‑by‑row).
-- Extract `TxID` (transaction identifier) for each row; attach to emitted events.
+- Extract `TxID` (transaction identifier) for each row; attach to emitted events. TxID is the MySQL GTID GNO (uint64).
 
 **Table Convention & Extraction**
 - Only handle tables named with prefix `CONFIG_DATA_TABLE_PREFIX` (e.g., `config_data_`), followed by `{namespace}_{POP}`.
@@ -29,18 +29,18 @@ Parse MySQL ROW binlog events from `config_data_{namespace}_{POP}` tables and em
 - Intra‑batch order is not required; uniqueness (last‑write‑wins per key) is enforced by downstream Aggregator.
 
 **Error Handling & Retries**
-- On row parse or mapping failure: log an error with context (table, txid, namespace, pop, operation) and increment a metric.
-- Retry up to 3 attempts for a transient parse/mapping error. If all attempts fail, stop the stream and surface the failure.
+- On row parse or mapping failure: log an error with context (table, txid) and increment a metric. Rows with malformed table names or invalid shapes are skipped.
+- Retry up to 3 attempts for transient streaming errors when fetching binlog events. If retries are exhausted, stop the stream and surface the error.
 
 **Interfaces & Integration**
 - Extend `internal/aggregator/pipeline.go` `StreamEvent` to include `Namespace string` and `Pop string` for `RowChange` events (do not impact `TxnBegin`/`TxnCommit`).
 - Keep `KVChange.Value` as `[]byte` and unchanged by the parser.
-- Ensure emitted events align with existing `Coordinator.Run(ctx)` model (bounded channels, backpressure).
+- Streamer emits events directly into the Coordinator input channel to leverage backpressure and avoid extra layers.
 
 **Metrics & Logging**
-- Metrics: per‑row processed counter; parse/mapping error counter; retry counter; fatal stop counter.
-- Logging: error logs include table name, txid, namespace, pop, operation, and a compact reason.
-- Reuse mars‑lib logger (`GetLogger()`); avoid verbose log spam.
+- Metrics: per‑row processed counter; parse/mapping error counter.
+- Logging: concise error logs include table and txid, with a compact reason.
+- Reuse mars‑lib logger (`GetLogger()`); avoid verbose log volume.
 
 ## Visual Design
 No visuals.

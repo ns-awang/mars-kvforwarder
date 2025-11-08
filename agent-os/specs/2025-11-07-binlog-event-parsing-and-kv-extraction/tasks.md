@@ -40,8 +40,8 @@
   - [x] Verify aggregator receives per-row KV unchanged (value pass-through)
   - [x] Unit tests to validate event struct compatibility and aggregator handshake
 
-- [ ] Task Group 9: Production Review & Completeness
-  - [ ] Review code for performance (allocations, logging volume) and failure modes
-  - [ ] Add any missing unit tests for uncovered behaviors
-  - [ ] Verify all spec requirements are covered and documented
+- [x] Task Group 9: Production Review & Completeness
+  - [x] Review code for performance (allocations, logging volume) and failure modes
+  - [x] Add any missing unit tests for uncovered behaviors
+  - [x] Verify all spec requirements are covered and documented
 
