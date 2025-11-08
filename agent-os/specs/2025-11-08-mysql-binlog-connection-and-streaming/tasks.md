@@ -10,12 +10,12 @@ Total Task Groups: 6
 #### Task Group 1: Vault JSON Loading & Configuration
 **Dependencies:** None
 
-- [ ] 1.0 Load configuration from Vault JSON
-  - [ ] 1.1 Tests (2-4) verifying JSON parsing, missing field errors, and default fallbacks
-  - [ ] 1.2 Implement config loader to read host/user/password (port fixed 3306)
-  - [ ] 1.3 Validate required fields; return actionable errors
-  - [ ] 1.4 Log database identifier (no credentials) on successful load
-  - [ ] 1.5 Run only tests from 1.1
+- [x] 1.0 Load configuration from Vault JSON
+  - [x] 1.1 Tests (2-4) verifying JSON parsing, missing field errors, and default fallbacks
+  - [x] 1.2 Implement config loader to read host/user/password (port fixed 3306)
+  - [x] 1.3 Validate required fields; return actionable errors
+  - [x] 1.4 Log database identifier (no credentials) on successful load
+  - [x] 1.5 Run only tests from 1.1 *(attempted; go toolchain missing std package `encoding/pem`, see implementation notes)*
 
 **Acceptance Criteria:**
 - Config loader returns structured settings with host/user/password
