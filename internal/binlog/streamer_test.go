@@ -44,7 +44,7 @@ func TestStreamBinlogRetriesAndStopsOnFatal(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	out := make(chan agg.StreamEvent, 4)
-	err := StreamBinlog(ctx, src, out)
+	err := StreamBinlog(ctx, src, nil, out)
 	require.Error(t, err)
 	require.Equal(t, 0, len(out))
 }
@@ -55,7 +55,7 @@ func TestStreamBinlogStopsAfterExceededRetries(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	out := make(chan agg.StreamEvent, 1)
-	err := StreamBinlog(ctx, src, out)
+	err := StreamBinlog(ctx, src, nil, out)
 	require.Error(t, err)
 	require.Equal(t, 0, len(out))
 }
@@ -71,7 +71,7 @@ func TestStreamBinlogEmitsOnSuccessAndResetsBackoff(t *testing.T) {
 	out := make(chan agg.StreamEvent, 10)
 	// stop after brief delay
 	go func() { time.Sleep(200 * time.Millisecond); cancel() }()
-	_ = StreamBinlog(ctx, src, out)
+	_ = StreamBinlog(ctx, src, nil, out)
 	require.GreaterOrEqual(t, len(out), 1)
 }
 
@@ -89,7 +89,7 @@ func TestStreamBinlogDemarcationTxID(t *testing.T) {
 	defer cancel()
 	out := make(chan agg.StreamEvent, 10)
 	go func() { time.Sleep(120 * time.Millisecond); cancel() }()
-	_ = StreamBinlog(ctx, src, out)
+	_ = StreamBinlog(ctx, src, nil, out)
 	// Collect row changes
 	var gotNS []string
 	var gotPOP []string
@@ -108,6 +108,24 @@ func TestStreamBinlogDemarcationTxID(t *testing.T) {
 	require.Equal(t, uint64(7), gotTxIDs[0])
 }
 
+func TestStreamBinlogUpdatesTracker(t *testing.T) {
+	sid := []byte{0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0x00}
+	gtid := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.GTID_EVENT}, Event: &replication.GTIDEvent{SID: sid, GNO: 15}}
+	tmap := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.TABLE_MAP_EVENT}, Event: &replication.TableMapEvent{TableID: 1, Table: []byte("config_data_ns1_POP1")}}
+	row := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.WRITE_ROWS_EVENTv2}, Event: &replication.RowsEvent{TableID: 1, Rows: [][]interface{}{{[]byte("k"), []byte("v")}}}}
+	src := &fakeStreamer{events: []*replication.BinlogEvent{gtid, tmap, row}}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	tracker := &GTIDTracker{}
+	out := make(chan agg.StreamEvent, 10)
+	_ = StreamBinlog(ctx, src, tracker, out)
+
+	last := tracker.Last()
+	require.NotNil(t, last)
+	require.Equal(t, "aabbccdd-eeff-1122-3344-556677889900:15", last.String())
+}
+
 func TestStreamBinlogMapsInsertAndDelete(t *testing.T) {
 	// TABLE_MAP -> INSERT rows -> DELETE rows
 	tmap := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.TABLE_MAP_EVENT}, Event: &replication.TableMapEvent{TableID: 1, Table: []byte("config_data_ns1_POP1")}}
@@ -123,7 +141,7 @@ func TestStreamBinlogMapsInsertAndDelete(t *testing.T) {
 	defer cancel()
 	out := make(chan agg.StreamEvent, 10)
 	go func() { time.Sleep(150 * time.Millisecond); cancel() }()
-	_ = StreamBinlog(ctx, src, out)
+	_ = StreamBinlog(ctx, src, nil, out)
 	var got []agg.StreamEvent
 	for len(out) > 0 {
 		ev := <-out
@@ -153,7 +171,7 @@ func TestStreamBinlogMapsUpdatePostImageOnly(t *testing.T) {
 	defer cancel()
 	out := make(chan agg.StreamEvent, 10)
 	go func() { time.Sleep(150 * time.Millisecond); cancel() }()
-	_ = StreamBinlog(ctx, src, out)
+	_ = StreamBinlog(ctx, src, nil, out)
 	var got []agg.StreamEvent
 	for len(out) > 0 {
 		ev := <-out
@@ -180,7 +198,7 @@ func TestStreamBinlogEmitsBeginAndCommit(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	out := make(chan agg.StreamEvent, 10)
-	_ = StreamBinlog(ctx, src, out)
+	_ = StreamBinlog(ctx, src, nil, out)
 	// Drain
 	var types []agg.EventType
 	for len(out) > 0 {
@@ -200,7 +218,7 @@ func TestStreamBinlogSkipsMalformedTableForRows(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	out := make(chan agg.StreamEvent, 10)
-	_ = StreamBinlog(ctx, src, out)
+	_ = StreamBinlog(ctx, src, nil, out)
 	// Ensure no RowChange emitted
 	for len(out) > 0 {
 		ev := <-out
@@ -218,7 +236,7 @@ func TestStreamBinlogOddUpdateRowsAreIgnored(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	out := make(chan agg.StreamEvent, 10)
-	_ = StreamBinlog(ctx, src, out)
+	_ = StreamBinlog(ctx, src, nil, out)
 	// No RowChange expected
 	for len(out) > 0 {
 		ev := <-out

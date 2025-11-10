@@ -44,12 +44,12 @@ Total Task Groups: 6
 #### Task Group 3: GTID Session Tracking
 **Dependencies:** Task Group 2
 
-- [ ] 3.0 Manage in-memory GTID state for reconnects
-  - [ ] 3.1 Tests (2-4) validating GTID capture, reuse on reconnect, and fallback to master when absent
-  - [ ] 3.2 Hook into streamer state to capture latest GTID
-  - [ ] 3.3 On reconnect, start from captured GTID or master if empty
-  - [ ] 3.4 Document GTID limitations in code comments per standards
-  - [ ] 3.5 Run only tests from 3.1
+- [x] 3.0 Manage in-memory GTID state for reconnects
+  - [x] 3.1 Tests (2-4) validating GTID capture, reuse on reconnect, and fallback to master when absent
+  - [x] 3.2 Hook into streamer state to capture latest GTID
+  - [x] 3.3 On reconnect, start from captured GTID or master if empty
+  - [x] 3.4 Document GTID limitations in code comments per standards
+  - [x] 3.5 Run only tests from 3.1
 
 **Acceptance Criteria:**
 - GTID stored in-memory updates as events stream

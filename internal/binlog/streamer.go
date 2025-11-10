@@ -46,7 +46,7 @@ type TransientError struct{ Err error }
 func (e TransientError) Error() string { return e.Err.Error() }
 
 // Streams binlog events and emits aggregator.StreamEvent into out.
-func StreamBinlog(ctx context.Context, src BinlogEventSource, out chan<- agg.StreamEvent) (err error) {
+func StreamBinlog(ctx context.Context, src BinlogEventSource, tracker *GTIDTracker, out chan<- agg.StreamEvent) (err error) {
 	const (
 		retryLimit     = 3
 		initialBackoff = 100 * time.Millisecond
@@ -57,6 +57,7 @@ func StreamBinlog(ctx context.Context, src BinlogEventSource, out chan<- agg.Str
 	state := streamState{
 		currentTxID:   0,
 		tableIDToName: make(map[uint64]string),
+		tracker:       tracker,
 	}
 	var ev *replication.BinlogEvent
 	for {
@@ -127,12 +128,19 @@ func StreamBinlog(ctx context.Context, src BinlogEventSource, out chan<- agg.Str
 type streamState struct {
 	currentTxID   uint64
 	tableIDToName map[uint64]string
+	tracker       *GTIDTracker
 }
 
 // Helpers to simplify StreamBinlog loop
 func handleGTIDEvent(state *streamState, ev *replication.BinlogEvent) {
 	if ge, ok := ev.Event.(*replication.GTIDEvent); ok {
 		state.currentTxID = uint64(ge.GNO)
+		if state.tracker != nil {
+			if err := state.tracker.Record(flavor, ge); err != nil {
+				obs.IncError()
+				logger.Errorf("gtid update failed: err=%v", err)
+			}
+		}
 	} else {
 		state.currentTxID = 0
 	}
