@@ -14,120 +14,69 @@ import (
 )
 
 const (
-	defaultInitialBackoff = 100 * time.Millisecond
-	defaultMaxBackoff     = 3 * time.Second
-	defaultHeartbeat      = 2 * time.Second
-	defaultReadTimeout    = 1 * time.Second
+	heartbeatPeriod = 2 * time.Second
+	readTimeout     = 1 * time.Second
+	serverID        = 1001
+	flavor          = "mysql"
+
+	initialBackoff = 100 * time.Millisecond
+	maxRetries     = 6
 )
 
 var (
-	connLog = mlog.GetLogger()
+	logger = mlog.GetLogger()
 
-	connectFunc = realConnect
+	connect = connectDB
 )
 
-// ConnectOptions controls connection parameters beyond the base config.
-type ConnectOptions struct {
-	ServerID       uint32
-	Flavor         string
-	GTID           mysql.GTIDSet
-	Heartbeat      time.Duration
-	ReadTimeout    time.Duration
-	InitialBackoff time.Duration
-	MaxBackoff     time.Duration
-}
+// ConnectWithRetry attempts to establish a binlog stream using exponential backoff until success or max retry duration.
+func ConnectWithRetry(ctx context.Context, cfg config.MySQLConfig, gtid mysql.GTIDSet) (src BinlogEventSource, cleanup func() error, err error) {
+	backoff := initialBackoff
 
-// ConnectWithRetry attempts to establish a binlog stream using exponential backoff.
-func ConnectWithRetry(ctx context.Context, cfg config.MySQLConfig, opts ConnectOptions) (BinlogEventSource, func() error, error) {
-	if opts.InitialBackoff <= 0 {
-		opts.InitialBackoff = defaultInitialBackoff
-	}
-	if opts.MaxBackoff <= 0 {
-		opts.MaxBackoff = defaultMaxBackoff
-	}
-	if opts.Heartbeat <= 0 {
-		opts.Heartbeat = defaultHeartbeat
-	}
-	if opts.ReadTimeout <= 0 {
-		opts.ReadTimeout = defaultReadTimeout
-	}
-	if opts.ServerID == 0 {
-		opts.ServerID = 1001
-	}
-	if opts.Flavor == "" {
-		opts.Flavor = "mysql"
-	}
-
-	backoff := opts.InitialBackoff
-
-	for attempt := 1; ; attempt++ {
-		if err := ctx.Err(); err != nil {
-			return nil, nil, err
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if err = ctx.Err(); err != nil {
+			return
 		}
 
-		src, cleanup, err := connectFunc(ctx, cfg, opts)
+		src, cleanup, err = connect(cfg, gtid)
 		if err == nil {
-			connLog.Infof("mysql binlog connected: database=%s host=%s attempt=%d", cfg.Database, cfg.Host, attempt)
-			return src, cleanup, nil
-		}
-
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, nil, err
+			logger.Infof("mysql binlog connected: database=%s host=%s attempt=%d", cfg.Database, cfg.Host, attempt)
+			return
 		}
 
 		obs.IncError()
-		if !isRetryable(err) {
-			connLog.Errorf("mysql binlog connection fatal: database=%s host=%s err=%v", cfg.Database, cfg.Host, err)
-			return nil, nil, err
+		if !isRetryable(err) || attempt == maxRetries {
+			logger.Errorf("mysql binlog connection failed err=%v", err)
+			return
 		}
 
-		connLog.Warnf("mysql binlog connection retry %d: database=%s host=%s err=%v backoff=%s", attempt, cfg.Database, cfg.Host, err, backoff)
+		logger.Warnf("mysql binlog connection retry %d: database=%s host=%s err=%v backoff=%s", attempt, cfg.Database, cfg.Host, err, backoff)
 		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return nil, nil, ctx.Err()
-		case <-timer.C:
-		}
-		if backoff < opts.MaxBackoff {
-			backoff *= 2
-			if backoff > opts.MaxBackoff {
-				backoff = opts.MaxBackoff
+			if err = ctx.Err(); err == nil {
+				err = errors.New("context canceled")
 			}
+			return
+		case <-timer.C:
+			timer.Stop()
 		}
+		backoff *= 2
 	}
+	return
 }
 
-func isRetryable(err error) bool {
-	var r retryableError
-	if errors.As(err, &r) {
-		return true
-	}
-	// Default to retryable for unknown errors (e.g., network) so caller can cap attempts.
-	return !errors.Is(err, ErrNonRetryable)
-}
-
-// ErrNonRetryable signals that ConnectWithRetry should not retry.
-var ErrNonRetryable = errors.New("non-retryable connection error")
-
-type retryableError struct {
-	err error
-}
-
-func (e retryableError) Error() string {
-	return e.err.Error()
-}
-
-func realConnect(ctx context.Context, cfg config.MySQLConfig, opts ConnectOptions) (BinlogEventSource, func() error, error) {
+func connectDB(cfg config.MySQLConfig, gtid mysql.GTIDSet) (BinlogEventSource, func() error, error) {
 	syncCfg := replication.BinlogSyncerConfig{
-		ServerID:        opts.ServerID,
-		Flavor:          opts.Flavor,
+		ServerID:        serverID,
+		Flavor:          flavor,
 		Host:            cfg.Host,
 		Port:            uint16(cfg.Port),
 		User:            cfg.User,
 		Password:        cfg.Password,
-		HeartbeatPeriod: opts.Heartbeat,
-		ReadTimeout:     opts.ReadTimeout,
+		HeartbeatPeriod: heartbeatPeriod,
+		ReadTimeout:     readTimeout,
 		ParseTime:       true,
 		UseDecimal:      true,
 	}
@@ -138,14 +87,14 @@ func realConnect(ctx context.Context, cfg config.MySQLConfig, opts ConnectOption
 		streamer *replication.BinlogStreamer
 		err      error
 	)
-	if opts.GTID != nil {
-		streamer, err = syncer.StartSyncGTID(opts.GTID)
+	if gtid != nil {
+		streamer, err = syncer.StartSyncGTID(gtid)
 	} else {
 		streamer, err = syncer.StartSync(mysql.Position{})
 	}
 	if err != nil {
 		syncer.Close()
-		return nil, nil, retryableError{err: err}
+		return nil, nil, err
 	}
 
 	source := &syncSource{streamer: streamer}
@@ -169,4 +118,10 @@ func (s *syncSource) GetEvent(ctx context.Context) (*replication.BinlogEvent, er
 		return nil, TransientError{Err: err}
 	}
 	return ev, nil
+}
+
+var ErrNonRetryable = errors.New("non-retryable connection error")
+
+func isRetryable(err error) bool {
+	return !errors.Is(err, ErrNonRetryable)
 }
