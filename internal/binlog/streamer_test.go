@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/go-mysql-org/go-mysql/replication"
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/assert"
 
 	agg "mars-kvforwarder/internal/aggregator"
 )
@@ -45,8 +45,8 @@ func TestStreamBinlogRetriesAndStopsOnFatal(t *testing.T) {
 	defer cancel()
 	out := make(chan agg.StreamEvent, 4)
 	err := StreamBinlog(ctx, src, nil, out)
-	require.Error(t, err)
-	require.Equal(t, 0, len(out))
+	assert.Error(t, err)
+	assert.Equal(t, 0, len(out))
 }
 
 func TestStreamBinlogStopsAfterExceededRetries(t *testing.T) {
@@ -56,8 +56,8 @@ func TestStreamBinlogStopsAfterExceededRetries(t *testing.T) {
 	defer cancel()
 	out := make(chan agg.StreamEvent, 1)
 	err := StreamBinlog(ctx, src, nil, out)
-	require.Error(t, err)
-	require.Equal(t, 0, len(out))
+	assert.Error(t, err)
+	assert.Equal(t, 0, len(out))
 }
 
 func TestStreamBinlogEmitsOnSuccessAndResetsBackoff(t *testing.T) {
@@ -72,7 +72,7 @@ func TestStreamBinlogEmitsOnSuccessAndResetsBackoff(t *testing.T) {
 	// stop after brief delay
 	go func() { time.Sleep(200 * time.Millisecond); cancel() }()
 	_ = StreamBinlog(ctx, src, nil, out)
-	require.GreaterOrEqual(t, len(out), 1)
+	assert.GreaterOrEqual(t, len(out), 1)
 }
 
 func TestStreamBinlogDemarcationTxID(t *testing.T) {
@@ -102,10 +102,10 @@ func TestStreamBinlogDemarcationTxID(t *testing.T) {
 			gotTxIDs = append(gotTxIDs, ev.TxID)
 		}
 	}
-	require.GreaterOrEqual(t, len(gotNS), 2)
-	require.Equal(t, "ns1", gotNS[0])
-	require.Equal(t, "POP1", gotPOP[0])
-	require.Equal(t, uint64(7), gotTxIDs[0])
+	assert.GreaterOrEqual(t, len(gotNS), 2)
+	assert.Equal(t, "ns1", gotNS[0])
+	assert.Equal(t, "POP1", gotPOP[0])
+	assert.Equal(t, uint64(7), gotTxIDs[0])
 }
 
 func TestStreamBinlogUpdatesTracker(t *testing.T) {
@@ -122,8 +122,9 @@ func TestStreamBinlogUpdatesTracker(t *testing.T) {
 	_ = StreamBinlog(ctx, src, tracker, out)
 
 	last := tracker.Last()
-	require.NotNil(t, last)
-	require.Equal(t, "aabbccdd-eeff-1122-3344-556677889900:15", last.String())
+	if assert.NotNil(t, last) {
+		assert.Equal(t, "aabbccdd-eeff-1122-3344-556677889900:15", last.String())
+	}
 }
 
 func TestStreamBinlogMapsInsertAndDelete(t *testing.T) {
@@ -149,14 +150,14 @@ func TestStreamBinlogMapsInsertAndDelete(t *testing.T) {
 			got = append(got, ev)
 		}
 	}
-	require.GreaterOrEqual(t, len(got), 3)
+	assert.GreaterOrEqual(t, len(got), 3)
 	// First two from INSERT
-	require.Equal(t, "k1", got[0].Change.Key)
-	require.Equal(t, []byte("v1"), got[0].Change.Value)
-	require.Equal(t, "k2", got[1].Change.Key)
-	require.Nil(t, got[1].Change.Value)
+	assert.Equal(t, "k1", got[0].Change.Key)
+	assert.Equal(t, []byte("v1"), got[0].Change.Value)
+	assert.Equal(t, "k2", got[1].Change.Key)
+	assert.Nil(t, got[1].Change.Value)
 	// Third from DELETE
-	require.Equal(t, "k3", got[2].Change.Key)
+	assert.Equal(t, "k3", got[2].Change.Key)
 }
 
 func TestStreamBinlogMapsUpdatePostImageOnly(t *testing.T) {
@@ -179,11 +180,11 @@ func TestStreamBinlogMapsUpdatePostImageOnly(t *testing.T) {
 			got = append(got, ev)
 		}
 	}
-	require.GreaterOrEqual(t, len(got), 2)
-	require.Equal(t, "k1", got[0].Change.Key)
-	require.Equal(t, []byte("new"), got[0].Change.Value)
-	require.Equal(t, "k2", got[1].Change.Key)
-	require.Equal(t, []byte("b"), got[1].Change.Value)
+	assert.GreaterOrEqual(t, len(got), 2)
+	assert.Equal(t, "k1", got[0].Change.Key)
+	assert.Equal(t, []byte("new"), got[0].Change.Value)
+	assert.Equal(t, "k2", got[1].Change.Key)
+	assert.Equal(t, []byte("b"), got[1].Change.Value)
 }
 
 func TestStreamBinlogEmitsBeginAndCommit(t *testing.T) {
@@ -205,9 +206,9 @@ func TestStreamBinlogEmitsBeginAndCommit(t *testing.T) {
 		ev := <-out
 		types = append(types, ev.Type)
 	}
-	require.GreaterOrEqual(t, len(types), 2)
-	require.Equal(t, agg.TxnBegin, types[0])
-	require.Equal(t, agg.TxnCommit, types[len(types)-1])
+	assert.GreaterOrEqual(t, len(types), 2)
+	assert.Equal(t, agg.TxnBegin, types[0])
+	assert.Equal(t, agg.TxnCommit, types[len(types)-1])
 }
 
 func TestStreamBinlogSkipsMalformedTableForRows(t *testing.T) {
@@ -222,7 +223,7 @@ func TestStreamBinlogSkipsMalformedTableForRows(t *testing.T) {
 	// Ensure no RowChange emitted
 	for len(out) > 0 {
 		ev := <-out
-		require.NotEqual(t, agg.RowChange, ev.Type)
+		assert.NotEqual(t, agg.RowChange, ev.Type)
 	}
 }
 
@@ -240,6 +241,6 @@ func TestStreamBinlogOddUpdateRowsAreIgnored(t *testing.T) {
 	// No RowChange expected
 	for len(out) > 0 {
 		ev := <-out
-		require.NotEqual(t, agg.RowChange, ev.Type)
+		assert.NotEqual(t, agg.RowChange, ev.Type)
 	}
 }

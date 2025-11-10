@@ -11,7 +11,7 @@ import (
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/assert"
 )
 
 type fakeSource struct{}
@@ -47,10 +47,10 @@ func TestConnectWithRetrySuccessAfterTransientFailures(t *testing.T) {
 	defer cancel()
 
 	src, cleanup, err := ConnectWithRetry(ctx, cfg, nil)
-	require.NoError(t, err)
-	require.Equal(t, fake, src)
-	require.NotNil(t, cleanup)
-	require.Equal(t, 3, attempts)
+	assert.NoError(t, err)
+	assert.Equal(t, fake, src)
+	assert.NotNil(t, cleanup)
+	assert.Equal(t, 3, attempts)
 }
 
 func TestConnectWithRetryStopsOnFatalError(t *testing.T) {
@@ -70,9 +70,9 @@ func TestConnectWithRetryStopsOnFatalError(t *testing.T) {
 	defer cancel()
 
 	_, _, err := ConnectWithRetry(ctx, cfg, nil)
-	require.Error(t, err)
-	require.True(t, errors.Is(err, ErrNonRetryable))
-	require.Equal(t, 1, attempts)
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, ErrNonRetryable))
+	assert.Equal(t, 1, attempts)
 }
 
 func TestConnectWithRetryRespectsContextCancellation(t *testing.T) {
@@ -102,7 +102,7 @@ func TestConnectWithRetryRespectsContextCancellation(t *testing.T) {
 	}()
 
 	_, _, err := ConnectWithRetry(ctx, cfg, nil)
-	require.Error(t, err)
-	require.True(t, errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded))
-	require.GreaterOrEqual(t, attempts, 1)
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded))
+	assert.GreaterOrEqual(t, attempts, 1)
 }
